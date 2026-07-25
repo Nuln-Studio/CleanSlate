@@ -1,0 +1,16 @@
+# 配置文件可按需修改
+
+custom_cache_dirs: []  # 自定义缓存目录列表
+
+recycle_bin:
+  enabled: false  # 不要修改此选项
+  clean_recycle_bin: true  # true 扫描列表显示回收站项，默认清除
+
+backup:
+  enabled: true  # true 删除前自动备份，false 不备份（中高风险项强制备份）
+  dir: "D:/CleanSlate_Backup"  # 备份根目录
+
+
+aggressive_mode_enabled: false  # true 显示激进模式选项，false 只显示安全模式
+# 安全模式：清理 low + medium（medium 强制备份）
+# 激进模式：清理 low + medium + high（medium 和 high 强制备份）

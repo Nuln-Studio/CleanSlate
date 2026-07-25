@@ -2,8 +2,11 @@ import subprocess
 import shutil
 import os
 import time
+import ctypes
+from ctypes import wintypes
 from pathlib import Path
 from typing import Dict
+from datetime import datetime
 
 from config import (
     PATH_TEMP_SYSTEM, PATH_TEMP_USER, PATH_PREFETCH,
@@ -14,19 +17,106 @@ from config import (
     PATH_PIP_CACHE, PATH_NPM_CACHE, PATH_YARN_CACHE,
     PATH_MAVEN_REPO, PATH_GRADLE_CACHE, PATH_CONDA_PKGS,
     PATH_JDK_INSTALLS,
+    CUSTOM_CACHE_DIRS,
+    RECYCLE_BIN_ENABLED,
+    CLEAN_RECYCLE_BIN,
+    BACKUP_ENABLED,
+    BACKUP_DIR,
     USER_HOME,
     SYSTEM_DRIVE
 )
 
-def _run_cmd(cmd: str) -> bool:
+RISK_MAP = {
+    'shadow': 'medium',
+    'winsxs': 'medium',
+    'temp_sys': 'low',
+    'temp_user': 'low',
+    'prefetch': 'low',
+    'update_cache': 'low',
+    'qq_residue': 'low',
+    'wechat_cache': 'low',
+    'hibernation': 'low',
+    'duplicate_files': 'medium',
+    'large_files': 'high',
+    'empty_folders': 'low',
+    'browser_cache': 'low',
+    'ide_cache': 'low',
+    'log_files': 'low',
+    'installer_cache': 'low',
+    'pip_cache': 'low',
+    'npm_cache': 'low',
+    'yarn_cache': 'low',
+    'maven_repo': 'medium',
+    'gradle_cache': 'medium',
+    'conda_pkgs': 'low',
+    'jdk_versions': 'high',
+}
+
+if CLEAN_RECYCLE_BIN:
+    RISK_MAP['recycle_bin'] = 'low'
+
+for idx, p in enumerate(CUSTOM_CACHE_DIRS):
+    if p.exists():
+        RISK_MAP[f'custom_{idx}'] = 'low'
+
+def _get_backup_zip_path() -> Path:
+    """生成备份zip文件路径：D:/CleanSlate_Backup/CleanSlate_Backup_2026-07-25_14-30-00.zip"""
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    return BACKUP_DIR / f"CleanSlate_Backup_{timestamp}.zip"
+
+def _backup_to_zip(file_paths, zip_path) -> bool:
+    """将文件/文件夹列表打包成zip"""
     try:
-        return subprocess.run(cmd, shell=True, capture_output=True).returncode == 0
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for p in file_paths:
+                if not p.exists():
+                    continue
+                if p.is_file():
+                    zf.write(p, p.name)
+                elif p.is_dir():
+                    for root, dirs, files in os.walk(p):
+                        for f in files:
+                            full_path = Path(root) / f
+                            arc_name = full_path.relative_to(p.parent)
+                            zf.write(full_path, arc_name)
+        return True
     except Exception:
         return False
 
-def _delete_folder(path: Path) -> bool:
+def _send_to_recycle_bin(path: Path) -> bool:
     if not path.exists():
         return True
+    try:
+        path_str = str(path.resolve()) + '\0\0'
+        SHFileOperationW = ctypes.windll.shell32.SHFileOperationW
+        SHFileOperationW.argtypes = [ctypes.POINTER(wintypes.SHFILEOPSTRUCTW)]
+        file_op = wintypes.SHFILEOPSTRUCTW()
+        file_op.wFunc = 2
+        file_op.pFrom = ctypes.create_unicode_buffer(path_str)
+        file_op.fFlags = 0x0001 | 0x0004 | 0x0008
+        file_op.hwnd = None
+        result = SHFileOperationW(ctypes.byref(file_op))
+        return result == 0
+    except Exception:
+        try:
+            shutil.rmtree(path, ignore_errors=True)
+            return True
+        except Exception:
+            return False
+
+def _delete_folder(path: Path, item_id: str = None) -> bool:
+    if not path.exists():
+        return True
+    risk = RISK_MAP.get(item_id, 'low')
+    force_backup = risk in ('medium', 'high')
+    if force_backup or (BACKUP_ENABLED and risk == 'low'):
+        file_paths = [path]
+        zip_path = _get_backup_zip_path()
+        _backup_to_zip(file_paths, zip_path)
+    if force_backup or RECYCLE_BIN_ENABLED:
+        return _send_to_recycle_bin(path)
     try:
         shutil.rmtree(path, ignore_errors=True)
         path.mkdir(parents=True, exist_ok=True)
@@ -34,9 +124,18 @@ def _delete_folder(path: Path) -> bool:
     except Exception:
         return False
 
-def _delete_files(path: Path) -> bool:
+def _delete_files(path: Path, item_id: str = None) -> bool:
     if not path.exists():
         return True
+    risk = RISK_MAP.get(item_id, 'low')
+    force_backup = risk in ('medium', 'high')
+    if force_backup or (BACKUP_ENABLED and risk == 'low'):
+        file_paths = list(path.glob('*'))
+        if file_paths:
+            zip_path = _get_backup_zip_path()
+            _backup_to_zip(file_paths, zip_path)
+    if force_backup or RECYCLE_BIN_ENABLED:
+        return _send_to_recycle_bin(path)
     try:
         for f in path.glob('*'):
             if f.is_file():
@@ -45,40 +144,46 @@ def _delete_files(path: Path) -> bool:
     except Exception:
         return False
 
-def clean_shadow_storage() -> bool:
+def _run_cmd(cmd: str) -> bool:
+    try:
+        return subprocess.run(cmd, shell=True, capture_output=True).returncode == 0
+    except Exception:
+        return False
+
+def clean_shadow_storage(item_id: str = None) -> bool:
     return _run_cmd("vssadmin delete shadows /all /quiet")
 
-def clean_winsxs() -> bool:
+def clean_winsxs(item_id: str = None) -> bool:
     return _run_cmd("Dism /Online /Cleanup-Image /StartComponentCleanup /ResetBase")
 
-def clean_temp_system() -> bool:
-    return _delete_folder(PATH_TEMP_SYSTEM)
+def clean_temp_system(item_id: str = None) -> bool:
+    return _delete_folder(PATH_TEMP_SYSTEM, item_id)
 
-def clean_temp_user() -> bool:
-    return _delete_folder(PATH_TEMP_USER)
+def clean_temp_user(item_id: str = None) -> bool:
+    return _delete_folder(PATH_TEMP_USER, item_id)
 
-def clean_prefetch() -> bool:
-    return _delete_files(PATH_PREFETCH)
+def clean_prefetch(item_id: str = None) -> bool:
+    return _delete_files(PATH_PREFETCH, item_id)
 
-def clean_update_cache() -> bool:
-    return _delete_folder(PATH_UPDATE_CACHE)
+def clean_update_cache(item_id: str = None) -> bool:
+    return _delete_folder(PATH_UPDATE_CACHE, item_id)
 
-def clean_qq_residue() -> bool:
-    return _delete_folder(PATH_QQ)
+def clean_qq_residue(item_id: str = None) -> bool:
+    return _delete_folder(PATH_QQ, item_id)
 
-def clean_wechat_cache() -> bool:
+def clean_wechat_cache(item_id: str = None) -> bool:
     return True
 
-def clean_hibernation() -> bool:
+def clean_hibernation(item_id: str = None) -> bool:
     return _run_cmd("powercfg -h off")
 
-def clean_duplicate_files() -> bool:
+def clean_duplicate_files(item_id: str = None) -> bool:
     return False
 
-def clean_large_files() -> bool:
+def clean_large_files(item_id: str = None) -> bool:
     return False
 
-def clean_empty_folders() -> bool:
+def clean_empty_folders(item_id: str = None) -> bool:
     target_dirs = [
         USER_HOME / 'Documents',
         USER_HOME / 'Downloads',
@@ -101,7 +206,7 @@ def clean_empty_folders() -> bool:
                     pass
     return deleted > 0
 
-def clean_browser_cache() -> bool:
+def clean_browser_cache(item_id: str = None) -> bool:
     dirs = [PATH_CHROME_CACHE, PATH_EDGE_CACHE]
     if PATH_FIREFOX_CACHE.exists():
         for profile in PATH_FIREFOX_CACHE.glob('*.default*'):
@@ -111,10 +216,10 @@ def clean_browser_cache() -> bool:
     ok = True
     for p in dirs:
         if p.exists():
-            ok &= _delete_folder(p)
+            ok &= _delete_folder(p, item_id)
     return ok
 
-def clean_ide_cache() -> bool:
+def clean_ide_cache(item_id: str = None) -> bool:
     dirs = []
     if PATH_VSCODE_CACHE.exists():
         dirs.append(PATH_VSCODE_CACHE)
@@ -128,10 +233,10 @@ def clean_ide_cache() -> bool:
             dirs.append(cache_dir)
     ok = True
     for p in dirs:
-        ok &= _delete_folder(p)
+        ok &= _delete_folder(p, item_id)
     return ok
 
-def clean_log_files() -> bool:
+def clean_log_files(item_id: str = None) -> bool:
     p = PATH_SYSTEM_LOGS
     if not p.exists():
         return True
@@ -148,68 +253,56 @@ def clean_log_files() -> bool:
                 pass
     return deleted > 0
 
-def clean_installer_cache() -> bool:
+def clean_installer_cache(item_id: str = None) -> bool:
     p = PATH_INSTALLER_CACHE
-    return _delete_folder(p) if p.exists() else True
+    return _delete_folder(p, item_id) if p.exists() else True
 
-def clean_pip_cache() -> bool:
+def clean_pip_cache(item_id: str = None) -> bool:
     p = PATH_PIP_CACHE
-    return _delete_folder(p) if p.exists() else True
+    return _delete_folder(p, item_id) if p.exists() else True
 
-def clean_npm_cache() -> bool:
+def clean_npm_cache(item_id: str = None) -> bool:
     p = PATH_NPM_CACHE
-    return _delete_folder(p) if p.exists() else True
+    return _delete_folder(p, item_id) if p.exists() else True
 
-def clean_yarn_cache() -> bool:
+def clean_yarn_cache(item_id: str = None) -> bool:
     p = PATH_YARN_CACHE
-    return _delete_folder(p) if p.exists() else True
+    return _delete_folder(p, item_id) if p.exists() else True
 
-def clean_maven_repo() -> bool:
+def clean_maven_repo(item_id: str = None) -> bool:
     p = PATH_MAVEN_REPO
-    return _delete_folder(p) if p.exists() else True
+    return _delete_folder(p, item_id) if p.exists() else True
 
-def clean_gradle_cache() -> bool:
+def clean_gradle_cache(item_id: str = None) -> bool:
     p = PATH_GRADLE_CACHE
-    return _delete_folder(p) if p.exists() else True
+    return _delete_folder(p, item_id) if p.exists() else True
 
-def clean_conda_pkgs() -> bool:
+def clean_conda_pkgs(item_id: str = None) -> bool:
     p = PATH_CONDA_PKGS
-    return _delete_folder(p) if p.exists() else True
+    return _delete_folder(p, item_id) if p.exists() else True
 
-def clean_jdk_versions() -> bool:
-    """
-    删除除最新版本外的所有 JDK
-    通过扫描所有 java.exe 确定哪些是 JDK 安装目录
-    """
-    java_paths = []
-    try:
-        result = subprocess.run(
-            'where java 2>nul',
-            shell=True,
-            capture_output=True,
-            text=True
-        )
-        for line in result.stdout.splitlines():
-            p = Path(line.strip())
-            if p.exists() and p.name.lower() == 'java.exe':
-                jdk_root = p.parent.parent
-                if jdk_root not in java_paths:
-                    java_paths.append(jdk_root)
-    except Exception:
-        pass
-    
-    if len(java_paths) <= 1:
+def clean_jdk_versions(item_id: str = None) -> bool:
+    all_jdks = []
+    for base in PATH_JDK_INSTALLS:
+        if not base.exists():
+            continue
+        for item in base.glob('jdk*'):
+            if item.is_dir():
+                all_jdks.append(item)
+    if len(all_jdks) <= 1:
         return True
-    java_paths.sort(key=lambda x: x.name)
-    latest = java_paths[-1]
+    all_jdks.sort(key=lambda x: x.name)
     deleted = 0
-    for p in java_paths[:-1]:
+    for p in all_jdks[:-1]:
         try:
-            shutil.rmtree(p, ignore_errors=True)
+            _delete_folder(p, item_id)
             deleted += 1
         except Exception:
             pass
     return deleted > 0
+
+def clean_recycle_bin(item_id: str = None) -> bool:
+    return _run_cmd("rd /s /q C:\\$Recycle.bin")
 
 CLEAN_MAP = {
     'shadow': clean_shadow_storage,
@@ -237,12 +330,21 @@ CLEAN_MAP = {
     'jdk_versions': clean_jdk_versions,
 }
 
+if CLEAN_RECYCLE_BIN:
+    CLEAN_MAP['recycle_bin'] = clean_recycle_bin
+
+for idx, p in enumerate(CUSTOM_CACHE_DIRS):
+    if p.exists():
+        def make_custom_cleaner(dir_path):
+            return lambda item_id=None: _delete_folder(dir_path, item_id)
+        CLEAN_MAP[f'custom_{idx}'] = make_custom_cleaner(p)
+
 def run_cleaner(item_id: str) -> Dict[str, bool]:
     func = CLEAN_MAP.get(item_id)
     if not func:
         return {"success": False, "message": f"未知任务 {item_id}"}
     try:
-        ok = func()
+        ok = func(item_id)
         return {"success": ok, "message": "完成" if ok else "失败"}
     except Exception as e:
         return {"success": False, "message": f"异常: {str(e)}"}

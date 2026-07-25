@@ -2,6 +2,7 @@ import sys
 import shutil
 from scanner import get_all_scans
 from cleaner import run_cleaner
+from config import AGGRESSIVE_MODE_ENABLED
 
 def get_disk_info():
     try:
@@ -53,7 +54,10 @@ def main():
         id_map = display_results(data)
         print("\n操作选项:")
         print("  1. 手动选择要清理的项")
-        print("  2. 自动清理模式 (安全/标准/无视风险全部删除！)")
+        if AGGRESSIVE_MODE_ENABLED:
+            print("  2. 选择一键清理模式 (安全 / 激进)")
+        else:
+            print("  2. 安全模式一键清理（清理低风险 + 中风险，中风险自动备份）")
         print("  3. 重新扫描")
         print("  4. 退出")
         choice = input("请选择 (1/2/3/4): ").strip()
@@ -133,35 +137,42 @@ def main():
             data = get_all_scans()
             
         elif choice == '2':
-            mode = input("选择模式: 1-安全(仅低风险) 2-标准(逐一确认) 3-激进(全部清理，高风险二次确认) : ").strip()
-            if mode not in ['1', '2', '3']:
-                print("无效模式")
-                continue
+
+            if AGGRESSIVE_MODE_ENABLED:
+                mode_choice = input("选择模式: 1-安全 (清理低+中风险，中风险备份)  2-激进 (清理全部，中高风险备份): ").strip()
+                if mode_choice not in ['1', '2']:
+                    print("无效选项")
+                    continue
+                is_aggressive = (mode_choice == '2')
+            else:
+                is_aggressive = False 
             selected_ids = []
             for item_id, info in data.items():
                 size = info.get('size_gb', 0)
                 if size < 0.01:
                     continue
                 risk = info.get('risk', 'low')
-                if mode == '1':
-                    if risk != 'low':
-                        continue
+                if is_aggressive:
                     selected_ids.append(item_id)
-                elif mode == '2':
-                    if input(f"清理 {info.get('name', item_id)} ({size:.2f}GB, 风险{risk})? (y/N): ").lower() == 'y':
-                        selected_ids.append(item_id)
                 else:
-                    selected_ids.append(item_id)
+                    if risk in ('low', 'medium'):
+                        selected_ids.append(item_id)
+            
             if not selected_ids:
                 print("没有项可清理。")
                 continue
+            
             print("\n将清理以下项:")
             for i in selected_ids:
-                print(f"  - {data[i].get('name', i)} ({data[i].get('size_gb', 0):.2f} GB)")
+                risk_disp = data[i].get('risk', 'low')
+                risk_cn = {'low': '低', 'medium': '中', 'high': '高'}.get(risk_disp, '低')
+                print(f"  - {data[i].get('name', i)} ({data[i].get('size_gb', 0):.2f} GB, 风险{risk_cn})")
+            
             confirm = input("确认清理？(y/N): ").strip().lower()
             if confirm != 'y':
                 print("取消。")
                 continue
+            
             print("开始清理...")
             success_count = 0
             fail_count = 0

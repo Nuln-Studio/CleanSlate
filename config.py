@@ -1,10 +1,71 @@
 """配置文件(尽量不要修改可能会误删重要文件)"""
 import os
+import yaml
 from pathlib import Path
 
 SYSTEM_DRIVE = os.environ.get('SystemDrive', 'C:')
 CURRENT_USER = os.environ.get('USERNAME', 'Administrator')
 USER_HOME = Path(os.environ.get('USERPROFILE', f'{SYSTEM_DRIVE}\\Users\\{CURRENT_USER}'))
+
+CONFIG_FILE = Path(__file__).parent / 'config.yaml'
+
+def load_config():
+    default = {
+        "custom_cache_dirs": [],
+        "recycle_bin": {
+            "enabled": False,
+            "clean_recycle_bin": True
+        },
+        "backup": {
+            "enabled": True,
+            "dir": "D:/ClSl_bin"
+        },
+        "aggressive_mode_enabled": False
+    }
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                cfg = yaml.safe_load(f)
+            if cfg is None:
+                cfg = {}
+            for key in default:
+                if key not in cfg:
+                    cfg[key] = default[key]
+            return cfg
+        except Exception as e:
+            print(f"[Config] 配置文件解析失败，使用默认配置: {e}")
+            return default
+    else:
+        try:
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+                f.write("""# 配置文件可按需修改
+
+custom_cache_dirs: []  # 自定义缓存目录列表
+
+recycle_bin:
+  enabled: false  # false 不走回收站，直接删除（释放空间）
+  clean_recycle_bin: true  # true 扫描列表显示回收站项，默认清除
+
+backup:
+  enabled: true  # true 删除前自动备份，false 不备份（中高风险项强制备份）
+  dir: "D:/ClSl_bin"  # 备份根目录，不存在会自动创建
+
+aggressive_mode_enabled: false  # true 显示激进模式选项，false 只显示安全模式
+""")
+            print(f"[Config] 已生成配置文件: {CONFIG_FILE}")
+            print("[Config] 如需自定义清理行为，请修改 config.yaml")
+        except Exception:
+            pass
+        return default
+
+CONFIG = load_config()
+
+CUSTOM_CACHE_DIRS = [Path(p) for p in CONFIG.get("custom_cache_dirs", []) if p]
+RECYCLE_BIN_ENABLED = CONFIG.get("recycle_bin", {}).get("enabled", False)
+CLEAN_RECYCLE_BIN = CONFIG.get("recycle_bin", {}).get("clean_recycle_bin", True)
+BACKUP_ENABLED = CONFIG.get("backup", {}).get("enabled", True)
+BACKUP_DIR = Path(CONFIG.get("backup", {}).get("dir", "D:/ClSl_bin"))
+AGGRESSIVE_MODE_ENABLED = CONFIG.get("aggressive_mode_enabled", False)
 
 PATH_TEMP_SYSTEM = Path(f'{SYSTEM_DRIVE}/Windows/Temp')
 PATH_TEMP_USER = Path(os.environ.get('TEMP', f'{SYSTEM_DRIVE}\\Users\\{CURRENT_USER}\\AppData\\Local\\Temp'))
@@ -64,3 +125,15 @@ SCAN_ITEMS = [
     {'id': 'conda_pkgs', 'name': 'Conda 包缓存', 'risk': 'low'},
     {'id': 'jdk_versions', 'name': 'JDK 多版本残留', 'risk': 'high'},
 ]
+
+if CLEAN_RECYCLE_BIN:
+    SCAN_ITEMS.append({'id': 'recycle_bin', 'name': '回收站', 'risk': 'low'})
+
+if CUSTOM_CACHE_DIRS:
+    for idx, p in enumerate(CUSTOM_CACHE_DIRS):
+        if p.exists():
+            SCAN_ITEMS.append({
+                'id': f'custom_{idx}',
+                'name': f'自定义缓存 {p.name}',
+                'risk': 'low'
+            })

@@ -406,3 +406,28 @@ def get_all_scans() -> Dict[str, Dict]:
             results[item['id']] = data
             print(f" 完成 ({data.get('size_gb',0):.2f} GB)")
     return results
+from config import CUSTOM_CACHE_DIRS, CLEAN_RECYCLE_BIN
+
+def scan_recycle_bin() -> Dict:
+    try:
+        total = 0
+        recycle_path = Path('C:/$Recycle.bin')
+        if recycle_path.exists():
+            total = _get_folder_size(recycle_path)
+        size_gb = _get_size_gb(total)
+        return {"size_gb": size_gb, "can_clean": size_gb > 0.01, "detail": f"回收站 {size_gb:.2f} GB"}
+    except Exception:
+        return {"size_gb": 0.0, "can_clean": False, "detail": "回收站扫描失败"}
+
+def scan_custom_cache(path: Path) -> Dict:
+    if not path.exists():
+        return {"size_gb": 0.0, "can_clean": False, "detail": f"自定义目录不存在: {path}"}
+    gb = _get_size_gb(_get_folder_size(path))
+    return {"size_gb": gb, "can_clean": gb > 0.01, "detail": f"自定义缓存 {path.name} {gb:.2f} GB"}
+
+if CLEAN_RECYCLE_BIN:
+    SCAN_MAP['recycle_bin'] = scan_recycle_bin
+
+for idx, p in enumerate(CUSTOM_CACHE_DIRS):
+    if p.exists():
+        SCAN_MAP[f'custom_{idx}'] = lambda p=p: scan_custom_cache(p)
