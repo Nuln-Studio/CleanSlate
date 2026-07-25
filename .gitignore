@@ -136,3 +136,10 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+#Python缓存
+__pycache__/
+
+*.cmd
+*.pyc 
+.DS_Store 
