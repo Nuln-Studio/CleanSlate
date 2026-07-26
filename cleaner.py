@@ -1,7 +1,9 @@
 import subprocess
 import shutil
+import hashlib
 import os
 import time
+import re
 import ctypes
 from ctypes import wintypes
 from pathlib import Path
@@ -28,7 +30,7 @@ from config import (
 
 RISK_MAP = {
     'shadow': 'medium',
-    'winsxs': 'medium',
+    'winsxs': 'high',
     'temp_sys': 'low',
     'temp_user': 'low',
     'prefetch': 'low',
@@ -59,14 +61,36 @@ for idx, p in enumerate(CUSTOM_CACHE_DIRS):
     if p.exists():
         RISK_MAP[f'custom_{idx}'] = 'low'
 
+def _parse_version(dirname: str) -> tuple:
+    nums = re.findall(r'\d+', dirname)
+    if not nums:
+        return (0,)
+    return tuple(int(n) for n in nums)
+
 def _get_backup_zip_path() -> Path:
-    """生成备份zip文件路径：D:/CleanSlate_Backup/CleanSlate_Backup_2026-07-25_14-30-00.zip"""
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     return BACKUP_DIR / f"CleanSlate_Backup_{timestamp}.zip"
 
+def _get_folder_total_size(path: Path) -> int:
+    total = 0
+    for f in path.rglob('*'):
+        if f.is_file():
+            try:
+                total += f.stat().st_size
+            except (OSError, PermissionError):
+                pass
+    return total
+
 def _backup_to_zip(file_paths, zip_path) -> bool:
-    """将文件/文件夹列表打包成zip"""
+    total_size = 0
+    for p in file_paths:
+        if p.exists():
+            total_size += _get_folder_total_size(p)
+    if total_size > 2 * 1024 ** 3:
+        _log_clean("BACKUP_SKIP", str(zip_path), f"跳过备份 (大小 {_get_size_gb(total_size):.2f} GB 超过2GB)")
+        print(f"警告: 备份大小 {_get_size_gb(total_size):.2f} GB 超过2GB，跳过备份")
+        return False
     try:
         import zipfile
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -84,6 +108,22 @@ def _backup_to_zip(file_paths, zip_path) -> bool:
         return True
     except Exception:
         return False
+
+def _log_clean(action: str, path: str, result: str, backup_path: str = ""):
+    log_file = BACKUP_DIR / 'clean.log'
+    try:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_file, 'a', encoding='utf-8') as f:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"[{timestamp}] {action} | {path} | {result}")
+            if backup_path:
+                f.write(f" | 备份: {backup_path}")
+            f.write("\n")
+    except Exception:
+        pass
+
+def _get_size_gb(size_bytes: int) -> float:
+    return round(size_bytes / (1024 ** 3), 2)
 
 def _send_to_recycle_bin(path: Path) -> bool:
     if not path.exists():
@@ -111,17 +151,19 @@ def _delete_folder(path: Path, item_id: str = None) -> bool:
         return True
     risk = RISK_MAP.get(item_id, 'low')
     force_backup = risk in ('medium', 'high')
+    backup_path = ""
     if force_backup or (BACKUP_ENABLED and risk == 'low'):
         file_paths = [path]
         zip_path = _get_backup_zip_path()
-        _backup_to_zip(file_paths, zip_path)
-    if force_backup or RECYCLE_BIN_ENABLED:
-        return _send_to_recycle_bin(path)
+        if _backup_to_zip(file_paths, zip_path):
+            backup_path = str(zip_path)
     try:
         shutil.rmtree(path, ignore_errors=True)
         path.mkdir(parents=True, exist_ok=True)
+        _log_clean("DELETE_FOLDER", str(path), "成功", backup_path)
         return True
-    except Exception:
+    except Exception as e:
+        _log_clean("DELETE_FOLDER", str(path), f"失败: {str(e)}", backup_path)
         return False
 
 def _delete_files(path: Path, item_id: str = None) -> bool:
@@ -129,19 +171,21 @@ def _delete_files(path: Path, item_id: str = None) -> bool:
         return True
     risk = RISK_MAP.get(item_id, 'low')
     force_backup = risk in ('medium', 'high')
+    backup_path = ""
     if force_backup or (BACKUP_ENABLED and risk == 'low'):
         file_paths = list(path.glob('*'))
         if file_paths:
             zip_path = _get_backup_zip_path()
-            _backup_to_zip(file_paths, zip_path)
-    if force_backup or RECYCLE_BIN_ENABLED:
-        return _send_to_recycle_bin(path)
+            if _backup_to_zip(file_paths, zip_path):
+                backup_path = str(zip_path)
     try:
         for f in path.glob('*'):
             if f.is_file():
                 f.unlink()
+        _log_clean("DELETE_FILES", str(path), "成功", backup_path)
         return True
-    except Exception:
+    except Exception as e:
+        _log_clean("DELETE_FILES", str(path), f"失败: {str(e)}", backup_path)
         return False
 
 def _run_cmd(cmd: str) -> bool:
@@ -151,10 +195,25 @@ def _run_cmd(cmd: str) -> bool:
         return False
 
 def clean_shadow_storage(item_id: str = None) -> bool:
-    return _run_cmd("vssadmin delete shadows /all /quiet")
+    result = _run_cmd("vssadmin delete shadows /all /quiet")
+    _log_clean("SHADOW", "系统还原点", "成功" if result else "失败")
+    return result
 
 def clean_winsxs(item_id: str = None) -> bool:
-    return _run_cmd("Dism /Online /Cleanup-Image /StartComponentCleanup /ResetBase")
+    print("\n" + "=" * 70)
+    print("警告：此操作将永久删除系统更新备份")
+    print("执行后，已安装的 Windows 更新将无法卸载回滚")
+    print("如果系统出现兼容性问题，无法通过卸载更新修复")
+    print("请确认系统已稳定运行超过一个月，所有驱动和软件都正常")
+    print("=" * 70)
+    confirm = input("输入 'yes' 确认执行，否则取消: ").strip().lower()
+    if confirm != 'yes':
+        print("已取消 WinSxS 清理")
+        _log_clean("WINSXS", "WinSxS 组件存储", "已取消")
+        return False
+    result = _run_cmd("Dism /Online /Cleanup-Image /StartComponentCleanup /ResetBase")
+    _log_clean("WINSXS", "WinSxS 组件存储", "成功" if result else "失败")
+    return result
 
 def clean_temp_system(item_id: str = None) -> bool:
     return _delete_folder(PATH_TEMP_SYSTEM, item_id)
@@ -172,16 +231,112 @@ def clean_qq_residue(item_id: str = None) -> bool:
     return _delete_folder(PATH_QQ, item_id)
 
 def clean_wechat_cache(item_id: str = None) -> bool:
-    return True
+    print("微信缓存建议在微信客户端中手动清理 (设置 -> 文件管理 -> 清理缓存)")
+    _log_clean("WECHAT", "微信缓存", "跳过，建议手动清理")
+    return False
 
 def clean_hibernation(item_id: str = None) -> bool:
-    return _run_cmd("powercfg -h off")
+    print("\n关闭休眠将释放磁盘空间，但系统将无法使用休眠功能")
+    confirm = input("确认关闭休眠？(y/N): ").strip().lower()
+    if confirm != 'y':
+        print("已取消关闭休眠")
+        _log_clean("HIBERNATION", "休眠文件", "已取消")
+        return False
+    result = _run_cmd("powercfg -h off")
+    _log_clean("HIBERNATION", "休眠文件", "成功" if result else "失败")
+    return result
 
 def clean_duplicate_files(item_id: str = None) -> bool:
-    return False
+    print("重复文件清理：将删除重复文件，保留第一个")
+    target_dirs = [
+        USER_HOME / 'Documents',
+        USER_HOME / 'Downloads',
+        USER_HOME / 'Desktop',
+        USER_HOME / 'Pictures',
+        USER_HOME / 'Music',
+        USER_HOME / 'Videos',
+    ]
+    size_map = {}
+    for base in target_dirs:
+        if not base.exists():
+            continue
+        for f in base.rglob('*'):
+            if f.is_file() and f.stat().st_size > 1024:
+                size = f.stat().st_size
+                if size not in size_map:
+                    size_map[size] = []
+                size_map[size].append(f)
+    hashes = {}
+    deleted_count = 0
+    for size, files in size_map.items():
+        if len(files) < 2:
+            continue
+        for f in files:
+            file_hash = _get_file_hash_sample(f)
+            if not file_hash:
+                continue
+            if file_hash in hashes:
+                try:
+                    f.unlink()
+                    deleted_count += 1
+                    _log_clean("DUPLICATE_DELETE", str(f), "成功")
+                except Exception:
+                    pass
+            else:
+                hashes[file_hash] = f
+    _log_clean("DUPLICATE_FILES", f"重复文件", f"删除 {deleted_count} 个")
+    print(f"删除重复文件 {deleted_count} 个")
+    return deleted_count > 0
+
+def _get_file_hash_sample(filepath: Path) -> str:
+    size = filepath.stat().st_size
+    try:
+        with open(filepath, 'rb') as f:
+            if size > 1024 * 1024:
+                sample = f.read(1024 * 1024)
+                f.seek(-1024 * 1024, 2)
+                sample += f.read(1024 * 1024)
+                return hashlib.md5(sample).hexdigest()
+            else:
+                return hashlib.md5(f.read()).hexdigest()
+    except Exception:
+        return ""
 
 def clean_large_files(item_id: str = None) -> bool:
-    return False
+    target_dirs = [
+        USER_HOME,
+        Path(f'{SYSTEM_DRIVE}/Program Files'),
+        Path(f'{SYSTEM_DRIVE}/Program Files (x86)'),
+    ]
+    large_files = []
+    for base in target_dirs:
+        if not base.exists():
+            continue
+        for f in base.rglob('*'):
+            if f.is_file():
+                try:
+                    if f.stat().st_size > 1024 ** 3:
+                        large_files.append(f)
+                except (OSError, PermissionError):
+                    pass
+    if not large_files:
+        print("没有大文件可清理")
+        return False
+    deleted_count = 0
+    for f in large_files:
+        sz_gb = _get_size_gb(f.stat().st_size)
+        print(f"  {f} ({sz_gb:.2f} GB)")
+        confirm = input("删除此文件？(y/N): ").strip().lower()
+        if confirm == 'y':
+            try:
+                f.unlink()
+                deleted_count += 1
+                _log_clean("LARGE_FILE_DELETE", str(f), "成功")
+            except Exception as e:
+                _log_clean("LARGE_FILE_DELETE", str(f), f"失败: {str(e)}")
+    _log_clean("LARGE_FILES", f"大文件", f"删除 {deleted_count} 个")
+    print(f"删除大文件 {deleted_count} 个")
+    return deleted_count > 0
 
 def clean_empty_folders(item_id: str = None) -> bool:
     target_dirs = [
@@ -193,18 +348,24 @@ def clean_empty_folders(item_id: str = None) -> bool:
         USER_HOME / 'Videos',
         Path(f'{SYSTEM_DRIVE}/Users/Public'),
     ]
-    deleted = 0
-    for base in target_dirs:
-        if not base.exists():
-            continue
-        for dirpath, dirnames, filenames in os.walk(base, topdown=False):
-            if not filenames and not dirnames:
-                try:
-                    os.rmdir(dirpath)
-                    deleted += 1
-                except OSError:
-                    pass
-    return deleted > 0
+    total_deleted = 0
+    while True:
+        deleted_this_round = 0
+        for base in target_dirs:
+            if not base.exists():
+                continue
+            for dirpath, dirnames, filenames in os.walk(base, topdown=False):
+                if not filenames and not dirnames:
+                    try:
+                        os.rmdir(dirpath)
+                        deleted_this_round += 1
+                    except OSError:
+                        pass
+        if deleted_this_round == 0:
+            break
+        total_deleted += deleted_this_round
+    _log_clean("EMPTY_FOLDERS", f"空文件夹", f"删除 {total_deleted} 个")
+    return total_deleted > 0
 
 def clean_browser_cache(item_id: str = None) -> bool:
     dirs = [PATH_CHROME_CACHE, PATH_EDGE_CACHE]
@@ -243,14 +404,17 @@ def clean_log_files(item_id: str = None) -> bool:
     now = time.time()
     cutoff = now - 30 * 24 * 3600
     deleted = 0
-    for f in p.rglob('*.log'):
-        if f.is_file():
-            try:
-                if f.stat().st_mtime < cutoff:
-                    f.unlink()
-                    deleted += 1
-            except OSError:
-                pass
+    extensions = ('.log', '.etl', '.evtx')
+    for ext in extensions:
+        for f in p.rglob(f'*{ext}'):
+            if f.is_file():
+                try:
+                    if f.stat().st_mtime < cutoff:
+                        f.unlink()
+                        deleted += 1
+                except OSError:
+                    pass
+    _log_clean("LOG_FILES", f"日志文件", f"删除 {deleted} 个")
     return deleted > 0
 
 def clean_installer_cache(item_id: str = None) -> bool:
@@ -291,7 +455,8 @@ def clean_jdk_versions(item_id: str = None) -> bool:
                 all_jdks.append(item)
     if len(all_jdks) <= 1:
         return True
-    all_jdks.sort(key=lambda x: x.name)
+    all_jdks.sort(key=lambda x: _parse_version(x.name))
+    latest = all_jdks[-1]
     deleted = 0
     for p in all_jdks[:-1]:
         try:
@@ -299,10 +464,13 @@ def clean_jdk_versions(item_id: str = None) -> bool:
             deleted += 1
         except Exception:
             pass
+    _log_clean("JDK", f"删除 {deleted} 个旧版本，保留 {latest.name}", "完成")
     return deleted > 0
 
 def clean_recycle_bin(item_id: str = None) -> bool:
-    return _run_cmd("rd /s /q C:\\$Recycle.bin")
+    result = _run_cmd("powershell -Command \"Clear-RecycleBin -Force\"")
+    _log_clean("RECYCLE_BIN", "回收站", "成功" if result else "失败")
+    return result
 
 CLEAN_MAP = {
     'shadow': clean_shadow_storage,

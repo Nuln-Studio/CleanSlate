@@ -37,11 +37,9 @@ def _parse_gb_from_output(output: str, pattern: str) -> float:
     return 0.0
 
 def _get_folder_size(path: Path, max_depth: int = 3) -> int:
-    """只递归指定深度，避免过多文件"""
     if not path.exists():
         return 0
     total = 0
-    # 限制递归深度
     def walk_dir(p, depth):
         nonlocal total
         if depth > max_depth:
@@ -76,7 +74,7 @@ def scan_winsxs() -> Dict:
     m = re.search(r"组件存储的实际大小\s*:\s*([\d.]+)\s*MB", out)
     if m:
         gb = round(float(m.group(1)) / 1024, 2)
-        return {"size_gb": gb, "can_clean": True, "detail": f"WinSxS 可清理 {gb:.2f} GB"}
+        return {"size_gb": gb, "can_clean": True, "detail": f"WinSxS 可清理 {gb:.2f} GB（清理后将无法卸载 Windows 更新）"}
     return {"size_gb": 0.0, "can_clean": False, "detail": "WinSxS 状态未知"}
 
 def scan_temp_system() -> Dict:
@@ -122,7 +120,7 @@ def scan_wechat_cache() -> Dict:
                 return {
                     "size_gb": gb,
                     "can_clean": False,
-                    "detail": f"微信缓存位于 {cand}，占用 {gb:.2f} GB"
+                    "detail": f"微信缓存位于 {cand}，占用 {gb:.2f} GB，请在微信设置中手动清理"
                 }
     return {"size_gb": 0.0, "can_clean": False, "detail": "未检测到微信缓存"}
 
@@ -130,8 +128,22 @@ def scan_hibernation() -> Dict:
     p = PATH_HIBERNATION
     if p.exists():
         gb = _get_size_gb(p.stat().st_size)
-        return {"size_gb": gb, "can_clean": True, "detail": f"休眠文件启用 {gb:.2f} GB"}
+        return {"size_gb": gb, "can_clean": True, "detail": f"休眠文件启用 {gb:.2f} GB（关闭后无法使用休眠功能）"}
     return {"size_gb": 0.0, "can_clean": False, "detail": "休眠已关闭"}
+
+def _get_file_hash_sample(filepath: Path) -> str:
+    size = filepath.stat().st_size
+    try:
+        with open(filepath, 'rb') as f:
+            if size > 1024 * 1024:
+                sample = f.read(1024 * 1024)
+                f.seek(-1024 * 1024, 2)
+                sample += f.read(1024 * 1024)
+                return hashlib.md5(sample).hexdigest()
+            else:
+                return hashlib.md5(f.read()).hexdigest()
+    except Exception:
+        return ""
 
 def scan_duplicate_files() -> Dict:
     target_dirs = [
@@ -142,32 +154,46 @@ def scan_duplicate_files() -> Dict:
         USER_HOME / 'Music',
         USER_HOME / 'Videos',
     ]
-    hashes = {}
-    total_dup_size = 0
+    size_map = {}
     count = 0
+    print(" 收集文件...", end="", flush=True)
     for base in target_dirs:
         if not base.exists():
             continue
         for f in base.rglob('*'):
             if f.is_file() and f.stat().st_size > 1024:
                 count += 1
-                if count % 100 == 0:
+                if count % 1000 == 0:
                     print(".", end="", flush=True)
-                try:
-                    with open(f, 'rb') as fp:
-                        file_hash = hashlib.md5(fp.read()).hexdigest()
-                    if file_hash in hashes:
-                        total_dup_size += f.stat().st_size
-                    else:
-                        hashes[file_hash] = f
-                except (OSError, PermissionError):
-                    pass
-    print()  # 换行
+                size = f.stat().st_size
+                if size not in size_map:
+                    size_map[size] = []
+                size_map[size].append(f)
+    print(" 分组完成", flush=True)
+    hashes = {}
+    total_dup_size = 0
+    print(" 计算哈希...", end="", flush=True)
+    hash_count = 0
+    for size, files in size_map.items():
+        if len(files) < 2:
+            continue
+        for f in files:
+            hash_count += 1
+            if hash_count % 100 == 0:
+                print(".", end="", flush=True)
+            file_hash = _get_file_hash_sample(f)
+            if not file_hash:
+                continue
+            if file_hash in hashes:
+                total_dup_size += f.stat().st_size
+            else:
+                hashes[file_hash] = f
+    print(" 完成", flush=True)
     size_gb = _get_size_gb(total_dup_size)
     return {
         "size_gb": size_gb,
         "can_clean": size_gb > 0.01,
-        "detail": f"重复文件，可释放 {size_gb:.2f} GB"
+        "detail": f"重复文件，可释放 {size_gb:.2f} GB（删除后保留第一个文件）"
     }
 
 def scan_large_files() -> Dict:
@@ -179,24 +205,38 @@ def scan_large_files() -> Dict:
     large_files = []
     total_size = 0
     count = 0
+    max_files = 50000
+    start_time = time.time()
+    timeout = 10
+    print(" 扫描大文件...", end="", flush=True)
     for base in target_dirs:
         if not base.exists():
             continue
         for f in base.rglob('*'):
+            count += 1
+            if count % 1000 == 0:
+                print(".", end="", flush=True)
+            if count > max_files:
+                print(" 达到文件数上限", end="", flush=True)
+                break
+            if time.time() - start_time > timeout:
+                print(" 扫描超时", end="", flush=True)
+                break
             if f.is_file():
-                count += 1
-                if count % 1000 == 0:
-                    print(".", end="", flush=True)
                 try:
                     sz = f.stat().st_size
-                    if sz > 1024**3:
+                    if sz > 1024 ** 3:
                         large_files.append(f)
                         total_size += sz
                 except (OSError, PermissionError):
                     pass
-    print()
+        if count > max_files or time.time() - start_time > timeout:
+            break
+    print(" 完成", flush=True)
     size_gb = _get_size_gb(total_size)
     detail = f"大文件 (>1GB)，共 {len(large_files)} 个，占用 {size_gb:.2f} GB"
+    if count >= max_files:
+        detail += " (达到扫描上限)"
     return {"size_gb": size_gb, "can_clean": size_gb > 0.01, "detail": detail}
 
 def scan_empty_folders() -> Dict:
@@ -252,11 +292,13 @@ def scan_log_files() -> Dict:
     if not p.exists():
         return {"size_gb": 0.0, "can_clean": False, "detail": "系统日志目录不存在"}
     total = 0
-    for f in p.rglob('*.log'):
-        if f.is_file():
-            total += f.stat().st_size
+    extensions = ('.log', '.etl', '.evtx')
+    for ext in extensions:
+        for f in p.rglob(f'*{ext}'):
+            if f.is_file():
+                total += f.stat().st_size
     size_gb = _get_size_gb(total)
-    return {"size_gb": size_gb, "can_clean": size_gb > 0.01, "detail": f"日志文件 {size_gb:.2f} GB"}
+    return {"size_gb": size_gb, "can_clean": size_gb > 0.01, "detail": f"日志文件 (log/etl/evtx) {size_gb:.2f} GB"}
 
 def scan_installer_cache() -> Dict:
     p = PATH_INSTALLER_CACHE
@@ -309,12 +351,7 @@ def scan_conda_pkgs() -> Dict:
     return {"size_gb": gb, "can_clean": gb > 0.01, "detail": f"Conda包缓存 {gb:.2f} GB"}
 
 def scan_jdk_versions() -> Dict:
-    """
-    通过扫描 java.exe 检测已安装的 JDK
-    搜索所有包含 java.exe 的目录，识别出不同版本的 JDK
-    """
     java_paths = []
-
     search_dirs = [
         Path(f'{SYSTEM_DRIVE}/Program Files/Java'),
         Path(f'{SYSTEM_DRIVE}/Program Files (x86)/Java'),
@@ -324,7 +361,6 @@ def scan_jdk_versions() -> Dict:
         USER_HOME / 'jdk',
         Path(f'{SYSTEM_DRIVE}/jdk'),
     ]
-
     try:
         result = subprocess.run(
             'where java 2>nul',
@@ -335,7 +371,6 @@ def scan_jdk_versions() -> Dict:
         for line in result.stdout.splitlines():
             p = Path(line.strip())
             if p.exists() and p.name.lower() == 'java.exe':
-
                 jdk_root = p.parent.parent
                 if jdk_root not in java_paths:
                     java_paths.append(jdk_root)
@@ -350,19 +385,15 @@ def scan_jdk_versions() -> Dict:
                     java_exe = item / 'bin' / 'java.exe'
                     if java_exe.exists():
                         java_paths.append(item)
-    
     if not java_paths:
         return {"size_gb": 0.0, "can_clean": False, "detail": "未发现 JDK 安装"}
-    
     total_size = 0
     for p in java_paths:
         total_size += _get_folder_size(p)
-    
     gb = _get_size_gb(total_size)
     detail = f"发现 {len(java_paths)} 个 JDK 安装，总占用 {gb:.2f} GB"
     if len(java_paths) > 1:
         detail += f"，建议保留最新版本"
-    
     return {
         "size_gb": gb,
         "can_clean": len(java_paths) > 1,

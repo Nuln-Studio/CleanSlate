@@ -10,13 +10,13 @@ def get_disk_info():
         total_gb = usage.total / (1024**3)
         free_gb = usage.free / (1024**3)
         used_gb = usage.used / (1024**3)
-        return f"C: 总 {total_gb:.2f} GB, 已用 {used_gb:.2f} GB, 剩余 {free_gb:.2f} GB"
+        return total_gb,free_gb,used_gb
     except Exception:
         return "无法获取磁盘信息"
 
 def display_results(data):
     print("\n" + "=" * 70)
-    print("磁盘清理工具 - 扫描结果")
+    print("扫描结果")
     print("=" * 70)
     print(f"{'序号':<6} {'项':<20} {'大小(GB)':<10} {'风险':<8} 说明")
     print("-" * 70)
@@ -45,8 +45,32 @@ def show_clean_result(success_count, fail_count, disk_info):
     print(f"当前磁盘状态: {disk_info}")
     print("-" * 70)
 
+
+
+def progress_disk(total_gb,used_gb):
+    try:
+        progress_str = "占用：["
+        total_gb = round(total_gb,2)
+        used_gb = round(used_gb,2)
+        progress = round(used_gb/total_gb,2)*20
+        for x in range(0,20):
+            if x >= progress:
+                progress_str +=" "
+            else:
+                progress_str +="/"
+        progress_str +="]"
+        progress = str(progress*5)+"%"
+
+    except Exception:
+        progress,progress_str = "",""
+
+    return progress_str,progress
 def main():
-    print(get_disk_info())
+    
+    total_gb,free_gb,used_gb=get_disk_info()
+    progerss_str,progerss=progress_disk(total_gb,used_gb)
+    print(f"C: 总 {total_gb:.2f} GB, 已用 {used_gb:.2f} GB, 剩余 {free_gb:.2f} GB")
+    print(progerss_str,progerss)
     print("正在扫描磁盘，请稍候... (扫描过程中会显示进度，请耐心等待)")
     data = get_all_scans()
     
