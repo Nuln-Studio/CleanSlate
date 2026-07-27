@@ -198,45 +198,66 @@ def scan_duplicate_files() -> Dict:
 
 def scan_large_files() -> Dict:
     target_dirs = [
-        USER_HOME,
+        USER_HOME / 'Documents',
+        USER_HOME / 'Downloads',
+        USER_HOME / 'Desktop',
+        USER_HOME / 'Pictures',
+        USER_HOME / 'Music',
+        USER_HOME / 'Videos',
         Path(f'{SYSTEM_DRIVE}/Program Files'),
         Path(f'{SYSTEM_DRIVE}/Program Files (x86)'),
     ]
     large_files = []
     total_size = 0
     count = 0
-    max_files = 50000
+    max_files = 10000
     start_time = time.time()
-    timeout = 10
-    print(" 扫描大文件...", end="", flush=True)
+    timeout = 8
+    print(" 扫描大文件（限制深度）...", end="", flush=True)
+
+    def scan_dir(path, depth=0, max_depth=2):
+        nonlocal count, total_size
+        if depth > max_depth:
+            return
+        if time.time() - start_time > timeout:
+            return
+        try:
+            with os.scandir(path) as it:
+                for entry in it:
+                    count += 1
+                    if count % 500 == 0:
+                        print(".", end="", flush=True)
+                    if count > max_files:
+                        return
+                    if time.time() - start_time > timeout:
+                        return
+                    try:
+                        if entry.is_file(follow_symlinks=False):
+                            sz = entry.stat().st_size
+                            if sz > 1024 ** 3:
+                                large_files.append(Path(entry.path))
+                                total_size += sz
+                        elif entry.is_dir(follow_symlinks=False):
+                            scan_dir(Path(entry.path), depth + 1, max_depth)
+                    except (OSError, PermissionError):
+                        pass
+        except (OSError, PermissionError):
+            pass
+
     for base in target_dirs:
         if not base.exists():
             continue
-        for f in base.rglob('*'):
-            count += 1
-            if count % 1000 == 0:
-                print(".", end="", flush=True)
-            if count > max_files:
-                print(" 达到文件数上限", end="", flush=True)
-                break
-            if time.time() - start_time > timeout:
-                print(" 扫描超时", end="", flush=True)
-                break
-            if f.is_file():
-                try:
-                    sz = f.stat().st_size
-                    if sz > 1024 ** 3:
-                        large_files.append(f)
-                        total_size += sz
-                except (OSError, PermissionError):
-                    pass
+        scan_dir(base, 0, 2)
         if count > max_files or time.time() - start_time > timeout:
             break
+
     print(" 完成", flush=True)
     size_gb = _get_size_gb(total_size)
     detail = f"大文件 (>1GB)，共 {len(large_files)} 个，占用 {size_gb:.2f} GB"
     if count >= max_files:
         detail += " (达到扫描上限)"
+    if time.time() - start_time > timeout:
+        detail += " (扫描超时)"
     return {"size_gb": size_gb, "can_clean": size_gb > 0.01, "detail": detail}
 
 def scan_empty_folders() -> Dict:
@@ -437,7 +458,8 @@ def get_all_scans() -> Dict[str, Dict]:
             results[item['id']] = data
             print(f" 完成 ({data.get('size_gb',0):.2f} GB)")
     return results
-from config import CUSTOM_CACHE_DIRS, CLEAN_RECYCLE_BIN
+
+from config import CUSTOM_CACHE_DIRS, ENABLE_RECYCLE_BIN
 
 def scan_recycle_bin() -> Dict:
     try:
@@ -456,7 +478,7 @@ def scan_custom_cache(path: Path) -> Dict:
     gb = _get_size_gb(_get_folder_size(path))
     return {"size_gb": gb, "can_clean": gb > 0.01, "detail": f"自定义缓存 {path.name} {gb:.2f} GB"}
 
-if CLEAN_RECYCLE_BIN:
+if ENABLE_RECYCLE_BIN:
     SCAN_MAP['recycle_bin'] = scan_recycle_bin
 
 for idx, p in enumerate(CUSTOM_CACHE_DIRS):

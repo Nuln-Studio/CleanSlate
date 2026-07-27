@@ -1,8 +1,13 @@
 import sys
 import shutil
+import importlib.util
+from pathlib import Path
 from scanner import get_all_scans
-from cleaner import run_cleaner
-from config import AGGRESSIVE_MODE_ENABLED
+from cleaner import run_cleaner, CLEAN_MAP
+from config import AGGRESSIVE_MODE_ENABLED, ENABLE_PATCH
+
+_patch_scans = []
+_patch_ids = set()
 
 def get_disk_info():
     try:
@@ -10,7 +15,7 @@ def get_disk_info():
         total_gb = usage.total / (1024**3)
         free_gb = usage.free / (1024**3)
         used_gb = usage.used / (1024**3)
-        return total_gb,free_gb,used_gb
+        return total_gb, free_gb, used_gb
     except Exception:
         return "无法获取磁盘信息"
 
@@ -39,41 +44,66 @@ def display_results(data):
     print("=" * 70)
     return id_map
 
-def show_clean_result(success_count, fail_count, disk_info):
+def show_clean_result(success_count, fail_count, disk_info, bfree_gb):
     print("\n" + "-" * 70)
     print(f"清理完成: 成功 {success_count} 项, 失败 {fail_count} 项")
-    print(f"当前磁盘状态: {disk_info}")
     print("-" * 70)
 
-
-
-def progress_disk(total_gb,used_gb):
+def progress_disk(total_gb, used_gb):
     try:
         progress_str = "占用：["
-        total_gb = round(total_gb,2)
-        used_gb = round(used_gb,2)
-        progress = round(used_gb/total_gb,2)*20
-        for x in range(0,20):
+        total_gb = round(total_gb, 2)
+        used_gb = round(used_gb, 2)
+        progress = round(used_gb/total_gb, 2)*20
+        for x in range(0, 20):
             if x >= progress:
-                progress_str +=" "
+                progress_str += " "
             else:
-                progress_str +="/"
-        progress_str +="]"
+                progress_str += "/"
+        progress_str += "]"
         progress = str(progress*5)+"%"
-
     except Exception:
-        progress,progress_str = "",""
+        progress, progress_str = "", ""
+    return progress_str, progress
 
-    return progress_str,progress
+def load_patch_file(filepath):
+    try:
+        spec = importlib.util.spec_from_file_location("patch_module", filepath)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if not hasattr(module, 'register_patch'):
+            print("[补丁] 缺少 register_patch 函数")
+            return None
+        patch_info = module.register_patch()
+        if not isinstance(patch_info, dict):
+            print("[补丁] register_patch 必须返回字典")
+            return None
+        required_keys = ['id', 'name', 'scan', 'clean']
+        for k in required_keys:
+            if k not in patch_info:
+                print(f"[补丁] 缺少必需键: {k}")
+                return None
+        return patch_info
+    except Exception as e:
+        print(f"[补丁] 加载失败: {e}")
+        return None
+
 def main():
-    
-    total_gb,free_gb,used_gb=get_disk_info()
-    progerss_str,progerss=progress_disk(total_gb,used_gb)
+    total_gb, free_gb, used_gb = get_disk_info()
+    bfree_gb = free_gb
+    progerss_str, progerss = progress_disk(total_gb, used_gb)
     print(f"C: 总 {total_gb:.2f} GB, 已用 {used_gb:.2f} GB, 剩余 {free_gb:.2f} GB")
-    print(progerss_str,progerss)
+    print(progerss_str, progerss)
     print("正在扫描磁盘，请稍候... (扫描过程中会显示进度，请耐心等待)")
     data = get_all_scans()
-    
+    for func in _patch_scans:
+        try:
+            result = func()
+            if result:
+                data[result.get('id')] = result
+        except Exception:
+            pass
+
     while True:
         id_map = display_results(data)
         print("\n操作选项:")
@@ -84,8 +114,11 @@ def main():
             print("  2. 安全模式一键清理（清理低风险 + 中风险，中风险自动备份）")
         print("  3. 重新扫描")
         print("  4. 退出")
-        choice = input("请选择 (1/2/3/4): ").strip()
-        
+        if ENABLE_PATCH:
+            print("  5. 加载补丁")
+        choice_prompt = "请选择 (1/2/3/4" + ("/5" if ENABLE_PATCH else "") + "): "
+        choice = input(choice_prompt).strip()
+
         if choice == '1':
             print("\n手动选择清理项:")
             print("  1. 选择要删除的项 (输入序号，多个用逗号或空格分隔)")
@@ -125,7 +158,7 @@ def main():
                 selected_ids = list(id_map.values())
             else:
                 continue
-            
+
             print("\n即将清理以下项:")
             for item_id in selected_ids:
                 info = data.get(item_id, {})
@@ -134,7 +167,7 @@ def main():
             if confirm != 'y':
                 print("已取消。")
                 continue
-            
+
             print("\n开始清理...")
             success_count = 0
             fail_count = 0
@@ -155,13 +188,19 @@ def main():
                 else:
                     print(f"  [失败] {item_id} - {result['message']}")
                     fail_count += 1
-            show_clean_result(success_count, fail_count, get_disk_info())
+            show_clean_result(success_count, fail_count, get_disk_info(), bfree_gb)
             input("按回车键继续...")
             print("重新扫描...")
             data = get_all_scans()
-            
-        elif choice == '2':
+            for func in _patch_scans:
+                try:
+                    result = func()
+                    if result:
+                        data[result.get('id')] = result
+                except Exception:
+                    pass
 
+        elif choice == '2':
             if AGGRESSIVE_MODE_ENABLED:
                 mode_choice = input("选择模式: 1-安全 (清理低+中风险，中风险备份)  2-激进 (清理全部，中高风险备份): ").strip()
                 if mode_choice not in ['1', '2']:
@@ -169,7 +208,7 @@ def main():
                     continue
                 is_aggressive = (mode_choice == '2')
             else:
-                is_aggressive = False 
+                is_aggressive = False
             selected_ids = []
             for item_id, info in data.items():
                 size = info.get('size_gb', 0)
@@ -181,22 +220,18 @@ def main():
                 else:
                     if risk in ('low', 'medium'):
                         selected_ids.append(item_id)
-            
             if not selected_ids:
                 print("没有项可清理。")
                 continue
-            
             print("\n将清理以下项:")
             for i in selected_ids:
                 risk_disp = data[i].get('risk', 'low')
                 risk_cn = {'low': '低', 'medium': '中', 'high': '高'}.get(risk_disp, '低')
                 print(f"  - {data[i].get('name', i)} ({data[i].get('size_gb', 0):.2f} GB, 风险{risk_cn})")
-            
             confirm = input("确认清理？(y/N): ").strip().lower()
             if confirm != 'y':
                 print("取消。")
                 continue
-            
             print("开始清理...")
             success_count = 0
             fail_count = 0
@@ -214,20 +249,63 @@ def main():
                 else:
                     print(f"  [失败] {item_id} - {result['message']}")
                     fail_count += 1
-            show_clean_result(success_count, fail_count, get_disk_info())
+            show_clean_result(success_count, fail_count, get_disk_info(), bfree_gb)
             input("按回车键继续...")
             print("重新扫描...")
             data = get_all_scans()
-            
+            for func in _patch_scans:
+                try:
+                    result = func()
+                    if result:
+                        data[result.get('id')] = result
+                except Exception:
+                    pass
+
         elif choice == '3':
             print("重新扫描中...")
             data = get_all_scans()
+            for func in _patch_scans:
+                try:
+                    result = func()
+                    if result:
+                        data[result.get('id')] = result
+                except Exception:
+                    pass
             print("扫描完成。")
             input("按回车键继续...")
-            
+
         elif choice == '4':
             print("感谢使用，再见。")
             sys.exit(0)
+
+        elif choice == '5' and ENABLE_PATCH:
+            patch_path = input("请输入补丁文件路径: ").strip()
+            if not patch_path:
+                print("路径为空，取消加载。")
+                continue
+            if not Path(patch_path).exists():
+                print("文件不存在。")
+                continue
+            patch_info = load_patch_file(patch_path)
+            if patch_info is None:
+                print("补丁加载失败。")
+                continue
+            pid = patch_info['id']
+            if pid in _patch_ids:
+                print(f"补丁 '{pid}' 已加载，无需重复。")
+                continue
+            CLEAN_MAP[pid] = patch_info['clean']
+            _patch_scans.append(patch_info['scan'])
+            _patch_ids.add(pid)
+            try:
+                result = patch_info['scan']()
+                if result:
+                    data[pid] = result
+            except Exception as e:
+                print(f"补丁扫描执行失败: {e}")
+            print(f"补丁 '{patch_info['name']}' 加载成功！")
+            input("按回车键继续...")
+
         else:
             print("无效选项，请重新选择。")
             input("按回车键继续...")

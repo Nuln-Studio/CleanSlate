@@ -21,7 +21,6 @@ from config import (
     PATH_JDK_INSTALLS,
     CUSTOM_CACHE_DIRS,
     RECYCLE_BIN_ENABLED,
-    CLEAN_RECYCLE_BIN,
     BACKUP_ENABLED,
     BACKUP_DIR,
     USER_HOME,
@@ -52,10 +51,8 @@ RISK_MAP = {
     'gradle_cache': 'medium',
     'conda_pkgs': 'low',
     'jdk_versions': 'high',
+    'recycle_bin': 'low'
 }
-
-if CLEAN_RECYCLE_BIN:
-    RISK_MAP['recycle_bin'] = 'low'
 
 for idx, p in enumerate(CUSTOM_CACHE_DIRS):
     if p.exists():
@@ -496,10 +493,8 @@ CLEAN_MAP = {
     'gradle_cache': clean_gradle_cache,
     'conda_pkgs': clean_conda_pkgs,
     'jdk_versions': clean_jdk_versions,
+    'recycle_bin': clean_recycle_bin
 }
-
-if CLEAN_RECYCLE_BIN:
-    CLEAN_MAP['recycle_bin'] = clean_recycle_bin
 
 for idx, p in enumerate(CUSTOM_CACHE_DIRS):
     if p.exists():

@@ -1,4 +1,3 @@
-"""配置文件(尽量不要修改可能会误删重要文件)"""
 import os
 import yaml
 from pathlib import Path
@@ -13,14 +12,40 @@ def load_config():
     default = {
         "custom_cache_dirs": [],
         "recycle_bin": {
-            "enabled": False,
-            "clean_recycle_bin": True
+            "enabled": False
         },
         "backup": {
             "enabled": True,
             "dir": "D:/ClSl_bin"
         },
-        "aggressive_mode_enabled": False
+        "aggressive_mode_enabled": False,
+        "enable_patch": False,
+        "scanner": {
+            "shadow": True,
+            "winsxs": True,
+            "temp_sys": True,
+            "temp_user": True,
+            "prefetch": True,
+            "update_cache": True,
+            "qq_residue": True,
+            "wechat_cache": True,
+            "hibernation": True,
+            "duplicate_files": True,
+            "large_files": True,
+            "empty_folders": True,
+            "browser_cache": True,
+            "ide_cache": True,
+            "log_files": True,
+            "installer_cache": True,
+            "pip_cache": True,
+            "npm_cache": True,
+            "yarn_cache": True,
+            "maven_repo": True,
+            "gradle_cache": True,
+            "conda_pkgs": True,
+            "jdk_versions": True,
+            "recycle_bin": True
+        }
     }
     if CONFIG_FILE.exists():
         try:
@@ -31,6 +56,12 @@ def load_config():
             for key in default:
                 if key not in cfg:
                     cfg[key] = default[key]
+            if "scanner" not in cfg:
+                cfg["scanner"] = default["scanner"]
+            else:
+                for key in default["scanner"]:
+                    if key not in cfg["scanner"]:
+                        cfg["scanner"][key] = default["scanner"][key]
             return cfg
         except Exception as e:
             print(f"[Config] 配置文件解析失败，使用默认配置: {e}")
@@ -44,13 +75,40 @@ custom_cache_dirs: []  # 自定义缓存目录列表
 
 recycle_bin:
   enabled: false  # false 不走回收站，直接删除（释放空间）
-  clean_recycle_bin: true  # true 扫描列表显示回收站项，默认清除
+
+scanner:  #扫描时是否启用这些选项（只有大文件是false，不大好使就给关了）
+  shadow: true          # 系统还原点
+  winsxs: true          # WinSxS 组件存储
+  temp_sys: true        # 系统临时文件
+  temp_user: true       # 用户临时文件
+  prefetch: true        # 预读缓存
+  update_cache: true    # Windows 更新缓存
+  qq_residue: true      # QQ 残留
+  wechat_cache: true    # 微信缓存
+  hibernation: true     # 休眠文件
+  duplicate_files: true # 重复文件
+  large_files: true     # 大文件 (后续出补丁，启用那个补丁选项才能加载补丁然后用)
+  empty_folders: true   # 空文件夹
+  browser_cache: true   # 浏览器缓存
+  ide_cache: true       # IDE 缓存
+  log_files: true       # 日志文件
+  installer_cache: true # 安装包缓存
+  pip_cache: true       # pip 缓存
+  npm_cache: true       # npm 缓存
+  yarn_cache: true      # yarn 缓存
+  maven_repo: true      # Maven 本地仓库
+  gradle_cache: true    # Gradle 缓存
+  conda_pkgs: true      # Conda 包缓存
+  jdk_versions: true    # JDK 多版本残留
+  recycle_bin: true     # 回收站
 
 backup:
   enabled: true  # true 删除前自动备份，false 不备份（中高风险项强制备份）
   dir: "D:/ClSl_bin"  # 备份根目录，不存在会自动创建
 
 aggressive_mode_enabled: false  # true 显示激进模式选项，false 只显示安全模式
+
+enable_patch: false  # true 显示补丁加载选项，false 隐藏
 """)
             print(f"[Config] 已生成配置文件: {CONFIG_FILE}")
             print("[Config] 如需自定义清理行为，请修改 config.yaml")
@@ -62,10 +120,36 @@ CONFIG = load_config()
 
 CUSTOM_CACHE_DIRS = [Path(p) for p in CONFIG.get("custom_cache_dirs", []) if p]
 RECYCLE_BIN_ENABLED = CONFIG.get("recycle_bin", {}).get("enabled", False)
-CLEAN_RECYCLE_BIN = CONFIG.get("recycle_bin", {}).get("clean_recycle_bin", True)
 BACKUP_ENABLED = CONFIG.get("backup", {}).get("enabled", True)
 BACKUP_DIR = Path(CONFIG.get("backup", {}).get("dir", "D:/ClSl_bin"))
 AGGRESSIVE_MODE_ENABLED = CONFIG.get("aggressive_mode_enabled", False)
+ENABLE_PATCH = CONFIG.get("enable_patch", False)
+
+_SCANNER = CONFIG.get("scanner", {})
+ENABLE_SHADOW = _SCANNER.get("shadow", True)
+ENABLE_WINSXS = _SCANNER.get("winsxs", True)
+ENABLE_TEMP_SYS = _SCANNER.get("temp_sys", True)
+ENABLE_TEMP_USER = _SCANNER.get("temp_user", True)
+ENABLE_PREFETCH = _SCANNER.get("prefetch", True)
+ENABLE_UPDATE_CACHE = _SCANNER.get("update_cache", True)
+ENABLE_QQ_RESIDUE = _SCANNER.get("qq_residue", True)
+ENABLE_WECHAT_CACHE = _SCANNER.get("wechat_cache", True)
+ENABLE_HIBERNATION = _SCANNER.get("hibernation", True)
+ENABLE_DUPLICATE_FILES = _SCANNER.get("duplicate_files", True)
+ENABLE_LARGE_FILES = _SCANNER.get("large_files", True)
+ENABLE_EMPTY_FOLDERS = _SCANNER.get("empty_folders", True)
+ENABLE_BROWSER_CACHE = _SCANNER.get("browser_cache", True)
+ENABLE_IDE_CACHE = _SCANNER.get("ide_cache", True)
+ENABLE_LOG_FILES = _SCANNER.get("log_files", True)
+ENABLE_INSTALLER_CACHE = _SCANNER.get("installer_cache", True)
+ENABLE_PIP_CACHE = _SCANNER.get("pip_cache", True)
+ENABLE_NPM_CACHE = _SCANNER.get("npm_cache", True)
+ENABLE_YARN_CACHE = _SCANNER.get("yarn_cache", True)
+ENABLE_MAVEN_REPO = _SCANNER.get("maven_repo", True)
+ENABLE_GRADLE_CACHE = _SCANNER.get("gradle_cache", True)
+ENABLE_CONDA_PKGS = _SCANNER.get("conda_pkgs", True)
+ENABLE_JDK_VERSIONS = _SCANNER.get("jdk_versions", True)
+ENABLE_RECYCLE_BIN = _SCANNER.get("recycle_bin", True)
 
 PATH_TEMP_SYSTEM = Path(f'{SYSTEM_DRIVE}/Windows/Temp')
 PATH_TEMP_USER = Path(os.environ.get('TEMP', f'{SYSTEM_DRIVE}\\Users\\{CURRENT_USER}\\AppData\\Local\\Temp'))
@@ -100,7 +184,7 @@ PATH_JDK_INSTALLS = [
     Path(f'{SYSTEM_DRIVE}/Program Files (x86)/Java'),
 ]
 
-SCAN_ITEMS = [
+_BASE_SCAN_ITEMS = [
     {'id': 'shadow', 'name': '系统还原点', 'risk': 'medium'},
     {'id': 'winsxs', 'name': 'WinSxS 组件存储', 'risk': 'medium'},
     {'id': 'temp_sys', 'name': '系统临时文件', 'risk': 'low'},
@@ -126,7 +210,38 @@ SCAN_ITEMS = [
     {'id': 'jdk_versions', 'name': 'JDK 多版本残留', 'risk': 'high'},
 ]
 
-if CLEAN_RECYCLE_BIN:
+ENABLE_MAP = {
+    'shadow': ENABLE_SHADOW,
+    'winsxs': ENABLE_WINSXS,
+    'temp_sys': ENABLE_TEMP_SYS,
+    'temp_user': ENABLE_TEMP_USER,
+    'prefetch': ENABLE_PREFETCH,
+    'update_cache': ENABLE_UPDATE_CACHE,
+    'qq_residue': ENABLE_QQ_RESIDUE,
+    'wechat_cache': ENABLE_WECHAT_CACHE,
+    'hibernation': ENABLE_HIBERNATION,
+    'duplicate_files': ENABLE_DUPLICATE_FILES,
+    'large_files': ENABLE_LARGE_FILES,
+    'empty_folders': ENABLE_EMPTY_FOLDERS,
+    'browser_cache': ENABLE_BROWSER_CACHE,
+    'ide_cache': ENABLE_IDE_CACHE,
+    'log_files': ENABLE_LOG_FILES,
+    'installer_cache': ENABLE_INSTALLER_CACHE,
+    'pip_cache': ENABLE_PIP_CACHE,
+    'npm_cache': ENABLE_NPM_CACHE,
+    'yarn_cache': ENABLE_YARN_CACHE,
+    'maven_repo': ENABLE_MAVEN_REPO,
+    'gradle_cache': ENABLE_GRADLE_CACHE,
+    'conda_pkgs': ENABLE_CONDA_PKGS,
+    'jdk_versions': ENABLE_JDK_VERSIONS,
+}
+
+SCAN_ITEMS = []
+for item in _BASE_SCAN_ITEMS:
+    if ENABLE_MAP.get(item['id'], True):
+        SCAN_ITEMS.append(item)
+
+if ENABLE_RECYCLE_BIN:
     SCAN_ITEMS.append({'id': 'recycle_bin', 'name': '回收站', 'risk': 'low'})
 
 if CUSTOM_CACHE_DIRS:
