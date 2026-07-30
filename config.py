@@ -2,13 +2,55 @@ import os
 import yaml
 from pathlib import Path
 import sys
+import shutil
 
 SYSTEM_DRIVE = os.environ.get('SystemDrive', 'C:')
 CURRENT_USER = os.environ.get('USERNAME', 'Administrator')
 USER_HOME = Path(os.environ.get('USERPROFILE', f'{SYSTEM_DRIVE}\\Users\\{CURRENT_USER}'))
 
-# 固定配置文件位置到 D:/ClSl/config.yaml
-CONFIG_FILE = Path('D:/ClSl/config.yaml')
+def _find_best_base_dir():
+    # 优先D盘
+    d_path = Path('D:/ClSl')
+    if d_path.parent.exists():
+        try:
+            usage = shutil.disk_usage(d_path.parent)
+            if usage.free > 1 * 1024 ** 3:
+                return d_path
+        except:
+            pass
+
+    # 扫描其他盘符
+    best_drive = None
+    best_free = -1
+    for letter in 'DEFGHIJKLMNOPQRSTUVWXYZ':
+        drive_path = Path(f'{letter}:/')
+        if not drive_path.exists():
+            continue
+        try:
+            usage = shutil.disk_usage(drive_path)
+            if usage.free > best_free and usage.free >= 500 * 1024 ** 2:
+                best_free = usage.free
+                best_drive = drive_path
+        except:
+            continue
+
+    if best_drive:
+        return best_drive / 'ClSl'
+
+    # 实在不行回到到 C 盘
+    c_path = Path('C:/ClSl')
+    try:
+        c_path.mkdir(parents=True, exist_ok=True)
+        c_path.rmdir()
+        return c_path
+    except:
+        if getattr(sys, 'frozen', False):
+            return Path(sys.executable).parent / 'ClSl'
+        else:
+            return Path(__file__).parent / 'ClSl'
+
+BASE_DIR = _find_best_base_dir()
+CONFIG_FILE = BASE_DIR / 'config.yaml'
 
 def load_config():
     default = {
@@ -18,11 +60,11 @@ def load_config():
         },
         "backup": {
             "enabled": True,
-            "dir": "D:/ClSl/backup"
+            "dir": str(BASE_DIR / 'backup')
         },
         "aggressive_mode_enabled": False,
         "enable_patch": False,
-        "patch_dir": "D:/ClSl/patches",
+        "patch_dir": str(BASE_DIR / 'patches'),
         "scanner": {
             "shadow": True,
             "winsxs": True,
@@ -73,7 +115,7 @@ def load_config():
         try:
             CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                f.write("""# 配置文件可按需修改
+                f.write(f"""# 配置文件可按需修改
 
 custom_cache_dirs: []  # 自定义缓存目录列表
 
@@ -108,7 +150,7 @@ scanner:  #扫描时是否启用这些选项（只有大文件是false，不大�
 
 backup:
   enabled: true  # true 删除前自动备份，false 不备份（中高风险项强制备份）
-  dir: "D:/ClSl/backup"  # 备份根目录，不存在会自动创建
+  dir: "{(BASE_DIR / 'backup').as_posix()}"  # 备份根目录，不存在会自动创建（优先D盘，没有会尝试找其他盘符，其他盘符也没有就存C盘了）
 
 aggressive_mode_enabled: false  # true 显示激进模式选项，false 只显示安全模式
 
@@ -125,11 +167,11 @@ CONFIG = load_config()
 CUSTOM_CACHE_DIRS = [Path(p) for p in CONFIG.get("custom_cache_dirs", []) if p]
 RECYCLE_BIN_ENABLED = CONFIG.get("recycle_bin", {}).get("enabled", False)
 BACKUP_ENABLED = CONFIG.get("backup", {}).get("enabled", True)
-BACKUP_DIR = Path(CONFIG.get("backup", {}).get("dir", "D:/ClSl/backup"))
+BACKUP_DIR = Path(CONFIG.get("backup", {}).get("dir", str(BASE_DIR / 'backup')))
 AGGRESSIVE_MODE_ENABLED = CONFIG.get("aggressive_mode_enabled", False)
 ENABLE_PATCH = CONFIG.get("enable_patch", False)
 BACKUP_RETENTION_DAYS = CONFIG.get("backup", {}).get("retention_days", 30)
-PATCH_DIR = Path(CONFIG.get("patch_dir", "D:/ClSl/patches"))
+PATCH_DIR = Path(CONFIG.get("patch_dir", str(BASE_DIR / 'patches')))
 
 _SCANNER = CONFIG.get("scanner", {})
 ENABLE_SHADOW = _SCANNER.get("shadow", True)
