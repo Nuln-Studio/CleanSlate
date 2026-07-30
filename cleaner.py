@@ -155,10 +155,15 @@ def _delete_folder(path: Path, item_id: str = None) -> bool:
         if _backup_to_zip(file_paths, zip_path):
             backup_path = str(zip_path)
     try:
-        shutil.rmtree(path, ignore_errors=True)
-        path.mkdir(parents=True, exist_ok=True)
-        _log_clean("DELETE_FOLDER", str(path), "成功", backup_path)
-        return True
+        if RECYCLE_BIN_ENABLED:
+            success = _send_to_recycle_bin(path)
+            _log_clean("DELETE_FOLDER", str(path), "成功（回收站）", backup_path)
+            return success
+        else:
+            shutil.rmtree(path, ignore_errors=True)
+            path.mkdir(parents=True, exist_ok=True)
+            _log_clean("DELETE_FOLDER", str(path), "成功", backup_path)
+            return True
     except Exception as e:
         _log_clean("DELETE_FOLDER", str(path), f"失败: {str(e)}", backup_path)
         return False
@@ -176,11 +181,20 @@ def _delete_files(path: Path, item_id: str = None) -> bool:
             if _backup_to_zip(file_paths, zip_path):
                 backup_path = str(zip_path)
     try:
-        for f in path.glob('*'):
-            if f.is_file():
-                f.unlink()
-        _log_clean("DELETE_FILES", str(path), "成功", backup_path)
-        return True
+        if RECYCLE_BIN_ENABLED:
+            success_all = True
+            for f in path.glob('*'):
+                if f.is_file():
+                    if not _send_to_recycle_bin(f):
+                        success_all = False
+            _log_clean("DELETE_FILES", str(path), "成功（回收站）" if success_all else "部分失败", backup_path)
+            return success_all
+        else:
+            for f in path.glob('*'):
+                if f.is_file():
+                    f.unlink()
+            _log_clean("DELETE_FILES", str(path), "成功", backup_path)
+            return True
     except Exception as e:
         _log_clean("DELETE_FILES", str(path), f"失败: {str(e)}", backup_path)
         return False

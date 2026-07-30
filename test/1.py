@@ -8,6 +8,12 @@ from scanner import get_all_scans
 from cleaner import run_cleaner, CLEAN_MAP
 from config import AGGRESSIVE_MODE_ENABLED, ENABLE_PATCH, PATCH_DIR, BACKUP_DIR, BACKUP_RETENTION_DAYS
 
+
+class AppState:
+    data = {}      
+    # ◐⩊◑
+
+
 TEMP_PATCH_DIR = Path(__file__).parent / 'temp_patches'
 PATCH_RETENTION_DAYS = 30
 
@@ -96,6 +102,7 @@ def clean_temp_patches():
     return clean_old_files(TEMP_PATCH_DIR, PATCH_RETENTION_DAYS, "*", "临时补丁文件")
 
 #.py and .bcs
+import hashlib
 def load_patch_file(filepath):
     filepath = Path(filepath)
     if filepath.suffix.lower() == '.bcs':
@@ -105,10 +112,12 @@ def load_patch_file(filepath):
                 if magic != b'CLSL':
                     print("[补丁] 不是有效的 bcs 文件 (魔数不匹配)")
                     return None
+
                 version = struct.unpack('B', f.read(1))[0]
-                if version != 1:
-                    print(f"[补丁] 不支持的版本: {version}")
+                if version != 2:
+                    print(f"[补丁] 不支持的版本: {version}，请使用最新版打包工具重新打包")
                     return None
+
                 time_bytes = f.read(19)
                 if len(time_bytes) != 19:
                     print("[补丁] 时间字段长度错误")
@@ -117,6 +126,7 @@ def load_patch_file(filepath):
                     pack_time = time_bytes.decode('utf-8')
                 except UnicodeDecodeError:
                     pack_time = "未知时间"
+
                 author_bytes = b''
                 while True:
                     c = f.read(1)
@@ -124,6 +134,12 @@ def load_patch_file(filepath):
                         break
                     author_bytes += c
                 author = author_bytes.decode('utf-8') if author_bytes else "未知作者"
+
+                stored_hash = f.read(64).decode('utf-8')
+                if len(stored_hash) != 64:
+                    print("[补丁] SHA256 长度错误")
+                    return None
+
                 py_len = struct.unpack('<I', f.read(4))[0]
                 if py_len <= 0:
                     print("[补丁] Python 长度无效")
@@ -134,18 +150,25 @@ def load_patch_file(filepath):
                 if len(py_data) != py_len:
                     print(f"[补丁] Python 数据不完整 (预期 {py_len}, 实际 {len(py_data)})")
                     return None
+
+                calc_hash = hashlib.sha256(py_data + yaml_data).hexdigest()
+                if calc_hash != stored_hash:
+                    print("[补丁] SHA256 校验失败，文件可能损坏")
+                    return None
+
             TEMP_PATCH_DIR.mkdir(parents=True, exist_ok=True)
             py_path = TEMP_PATCH_DIR / f"{filepath.stem}.py"
             yaml_path = TEMP_PATCH_DIR / f"{filepath.stem}.yaml"
             py_path.write_bytes(py_data)
             yaml_path.write_bytes(yaml_data)
             print(f"[补丁] 解包完成: {py_path.name} (作者: {author}, 时间: {pack_time})")
+            print(f"[补丁] SHA256 校验通过")
             filepath = py_path
+
         except Exception as e:
             print(f"[补丁] 解包失败: {e}")
             return None
 
-    #.py 文件
     if filepath.suffix.lower() != '.py':
         print("[补丁] 不支持的文件类型，请加载 .py 或 .bcs 文件")
         return None
@@ -155,7 +178,6 @@ def load_patch_file(filepath):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
-        # 判断是不是临时补丁（execute_once）
         if hasattr(module, 'execute_once'):
             print("[补丁] 检测到临时补丁，立即执行...")
             result = module.execute_once()
@@ -167,7 +189,6 @@ def load_patch_file(filepath):
                 print("临时补丁执行失败或未返回结果")
             return None
 
-        # 判断是不是集成补丁
         if hasattr(module, 'register_patch'):
             patch_info = module.register_patch()
             if not isinstance(patch_info, dict):
@@ -185,7 +206,8 @@ def load_patch_file(filepath):
     except Exception as e:
         print(f"[补丁] 加载失败: {e}")
         return None
-
+        
+             
 def load_patches_from_dir():
     if not PATCH_DIR.exists():
         PATCH_DIR.mkdir(parents=True, exist_ok=True)
@@ -222,7 +244,7 @@ def load_patches_from_dir():
         try:
             result = patch_info['scan']()
             if result:
-                data[pid] = result
+                AppState.data[pid] = result
         except Exception as e:
             print(f"[补丁] {pid} 初始扫描失败: {e}")
 
@@ -244,8 +266,7 @@ def main():
     print(progerss_str, progerss)
     print("正在扫描磁盘，请稍候... (扫描过程中会显示进度，请耐心等待)")
 
-    global data
-    data = get_all_scans()
+    AppState.data = get_all_scans()
 
     # 加载补丁目录
     if ENABLE_PATCH:
@@ -255,12 +276,12 @@ def main():
         try:
             result = func()
             if result:
-                data[result.get('id')] = result
+                AppState.data[result.get('id')] = result
         except Exception:
             pass
 
     while True:
-        id_map = display_results(data)
+        id_map = display_results(AppState.data)
         print("\n操作选项:")
         print("  1. 手动选择要清理的项")
         if AGGRESSIVE_MODE_ENABLED:
@@ -316,7 +337,7 @@ def main():
 
             print("\n即将清理以下项:")
             for item_id in selected_ids:
-                info = data.get(item_id, {})
+                info = AppState.data.get(item_id, {})
                 print(f"  - {info.get('name', item_id)} ({info.get('size_gb', 0):.2f} GB)")
             confirm = input("确认清理？(y/N): ").strip().lower()
             if confirm != 'y':
@@ -327,10 +348,10 @@ def main():
             success_count = 0
             fail_count = 0
             for item_id in selected_ids:
-                if item_id not in data:
+                if item_id not in AppState.data:
                     print(f"跳过未知项: {item_id}")
                     continue
-                risk = data[item_id].get('risk', 'low')
+                risk = AppState.data[item_id].get('risk', 'low')
                 if risk == 'high':
                     sec = input(f"项 '{item_id}' 风险为高，是否继续？(y/N): ").strip().lower()
                     if sec != 'y':
@@ -346,12 +367,12 @@ def main():
             show_clean_result(success_count, fail_count, get_disk_info(), bfree_gb)
             input("按回车键继续...")
             print("重新扫描...")
-            data = get_all_scans()
+            AppState.data = get_all_scans()
             for func in _patch_scans:
                 try:
                     result = func()
                     if result:
-                        data[result.get('id')] = result
+                        AppState.data[result.get('id')] = result
                 except Exception:
                     pass
 
@@ -365,7 +386,7 @@ def main():
             else:
                 is_aggressive = False
             selected_ids = []
-            for item_id, info in data.items():
+            for item_id, info in AppState.data.items():
                 size = info.get('size_gb', 0)
                 if size < 0.01:
                     continue
@@ -380,9 +401,9 @@ def main():
                 continue
             print("\n将清理以下项:")
             for i in selected_ids:
-                risk_disp = data[i].get('risk', 'low')
+                risk_disp = AppState.data[i].get('risk', 'low')
                 risk_cn = {'low': '低', 'medium': '中', 'high': '高'}.get(risk_disp, '低')
-                print(f"  - {data[i].get('name', i)} ({data[i].get('size_gb', 0):.2f} GB, 风险{risk_cn})")
+                print(f"  - {AppState.data[i].get('name', i)} ({AppState.data[i].get('size_gb', 0):.2f} GB, 风险{risk_cn})")
             confirm = input("确认清理？(y/N): ").strip().lower()
             if confirm != 'y':
                 print("取消。")
@@ -391,7 +412,7 @@ def main():
             success_count = 0
             fail_count = 0
             for item_id in selected_ids:
-                risk = data[item_id].get('risk', 'low')
+                risk = AppState.data[item_id].get('risk', 'low')
                 if risk == 'high':
                     sec = input(f"项 '{item_id}' 风险为高，仍继续？(y/N): ").strip().lower()
                     if sec != 'y':
@@ -407,23 +428,23 @@ def main():
             show_clean_result(success_count, fail_count, get_disk_info(), bfree_gb)
             input("按回车键继续...")
             print("重新扫描...")
-            data = get_all_scans()
+            AppState.data = get_all_scans()
             for func in _patch_scans:
                 try:
                     result = func()
                     if result:
-                        data[result.get('id')] = result
+                        AppState.data[result.get('id')] = result
                 except Exception:
                     pass
 
         elif choice == '3':
             print("重新扫描中...")
-            data = get_all_scans()
+            AppState.data = get_all_scans()
             for func in _patch_scans:
                 try:
                     result = func()
                     if result:
-                        data[result.get('id')] = result
+                        AppState.data[result.get('id')] = result
                 except Exception:
                     pass
             print("扫描完成。")
@@ -470,7 +491,7 @@ def main():
             try:
                 result = patch_info['scan']()
                 if result:
-                    data[pid] = result
+                    AppState.data[pid] = result
             except Exception as e:
                 print(f"补丁扫描执行失败: {e}")
 
