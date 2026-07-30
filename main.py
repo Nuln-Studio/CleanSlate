@@ -14,7 +14,7 @@ class AppState:
     # ◐⩊◑
 
 
-TEMP_PATCH_DIR = Path(__file__).parent / 'temp_patches'
+TEMP_PATCH_DIR = Path('D:/ClSl/temp_patches')
 PATCH_RETENTION_DAYS = 30
 
 _patch_scans = []

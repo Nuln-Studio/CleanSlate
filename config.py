@@ -1,12 +1,14 @@
 import os
 import yaml
 from pathlib import Path
+import sys
 
 SYSTEM_DRIVE = os.environ.get('SystemDrive', 'C:')
 CURRENT_USER = os.environ.get('USERNAME', 'Administrator')
 USER_HOME = Path(os.environ.get('USERPROFILE', f'{SYSTEM_DRIVE}\\Users\\{CURRENT_USER}'))
 
-CONFIG_FILE = Path(__file__).parent / 'config.yaml'
+# 固定配置文件位置到 D:/ClSl/config.yaml
+CONFIG_FILE = Path('D:/ClSl/config.yaml')
 
 def load_config():
     default = {
@@ -16,10 +18,11 @@ def load_config():
         },
         "backup": {
             "enabled": True,
-            "dir": "D:/ClSl_bin"
+            "dir": "D:/ClSl/backup"
         },
         "aggressive_mode_enabled": False,
         "enable_patch": False,
+        "patch_dir": "D:/ClSl/patches",
         "scanner": {
             "shadow": True,
             "winsxs": True,
@@ -68,6 +71,7 @@ def load_config():
             return default
     else:
         try:
+            CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 f.write("""# 配置文件可按需修改
 
@@ -104,7 +108,7 @@ scanner:  #扫描时是否启用这些选项（只有大文件是false，不大�
 
 backup:
   enabled: true  # true 删除前自动备份，false 不备份（中高风险项强制备份）
-  dir: "D:/ClSl_bin"  # 备份根目录，不存在会自动创建
+  dir: "D:/ClSl/backup"  # 备份根目录，不存在会自动创建
 
 aggressive_mode_enabled: false  # true 显示激进模式选项，false 只显示安全模式
 
@@ -121,11 +125,11 @@ CONFIG = load_config()
 CUSTOM_CACHE_DIRS = [Path(p) for p in CONFIG.get("custom_cache_dirs", []) if p]
 RECYCLE_BIN_ENABLED = CONFIG.get("recycle_bin", {}).get("enabled", False)
 BACKUP_ENABLED = CONFIG.get("backup", {}).get("enabled", True)
-BACKUP_DIR = Path(CONFIG.get("backup", {}).get("dir", "D:/ClSl_bin"))
+BACKUP_DIR = Path(CONFIG.get("backup", {}).get("dir", "D:/ClSl/backup"))
 AGGRESSIVE_MODE_ENABLED = CONFIG.get("aggressive_mode_enabled", False)
 ENABLE_PATCH = CONFIG.get("enable_patch", False)
 BACKUP_RETENTION_DAYS = CONFIG.get("backup", {}).get("retention_days", 30)
-PATCH_DIR = Path(CONFIG.get("patch_dir", "D:/CleanSlate_Patches"))
+PATCH_DIR = Path(CONFIG.get("patch_dir", "D:/ClSl/patches"))
 
 _SCANNER = CONFIG.get("scanner", {})
 ENABLE_SHADOW = _SCANNER.get("shadow", True)
