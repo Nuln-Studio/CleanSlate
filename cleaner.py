@@ -90,9 +90,9 @@ def _backup_to_zip(file_paths, zip_path) -> bool:
     for p in file_paths:
         if p.exists():
             total_size += _get_folder_total_size(p)
-    if total_size > 2 * 1024 ** 3:
-        _log_clean("BACKUP_SKIP", str(zip_path), f"跳过备份 (大小 {_get_size_gb(total_size):.2f} GB 超过2GB)")
-        print(f"警告: 备份大小 {_get_size_gb(total_size):.2f} GB 超过2GB，跳过备份")
+    if total_size > 8 * 1024 ** 3:
+        _log_clean("BACKUP_SKIP", str(zip_path), f"跳过备份 (大小 {_get_size_gb(total_size):.2f} GB 超过8GB)")
+        print(f"警告: 备份大小 {_get_size_gb(total_size):.2f} GB 超过8GB，跳过备份")
         return False
     try:
         import zipfile

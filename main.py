@@ -261,7 +261,7 @@ def main():
     clean_temp_patches()
 
     if EMERGENCY_MODE:
-        print("\n[警告] C盘剩余空间不足10GB，自动进入降级模式：")
+        print("\n[警告] C盘剩余空间不足2GB，自动进入降级模式：")
         print("  - 跳过高风险清理项（还原点、WinSxS、JDK等）")
         print("  - 禁用备份，避免占用C盘空间")
         print("  - 仅清理安全的临时文件和缓存\n")
@@ -299,7 +299,7 @@ def main():
             if risk in ('low', 'medium'):
                 safe_total += size
 
-        print(f"\n安全模式预计释放: {safe_total:.2f} GB | 激进模式预计释放: {all_total:.2f} GB")
+        print(f"\n安全模式预计释放: {safe_total:.2f} GB | 激进模式(配置文件中开启激进选项才可慎用)预计释放: {all_total:.2f} GB")
 
         print("\n操作选项:")
         print("  1. 手动选择要清理的项")

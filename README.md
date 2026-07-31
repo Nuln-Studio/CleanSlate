@@ -8,7 +8,7 @@
 
 ## 安装与运行
 
-1. 下载 `CleanSlate_noSetup_v1.0.0.zip` 或运行 `CleanSlate_Setup_v1.0.0.exe`(源代码请下载`source code(zip)`或`source code(tar.gz)`)
+1. 下载 `CleanSlate_noSetup_v1.0.2.zip` 或运行 `CleanSlate_Setup_v1.0.2.exe`(源代码请下载`source code(zip)`或`source code(tar.gz)`)
 2. 解压或安装完直接运行`clsl.exe`文件即可运行。
 3. 源码主入口为`main.py`
 4. 因为作者木有rmb买服务器所以大家只能手动更新本软件了TAT
