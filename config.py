@@ -9,7 +9,7 @@ CURRENT_USER = os.environ.get('USERNAME', 'Administrator')
 USER_HOME = Path(os.environ.get('USERPROFILE', f'{SYSTEM_DRIVE}\\Users\\{CURRENT_USER}'))
 
 def _find_best_base_dir():
-    # 优先D盘
+    # 优先D盘放
     d_path = Path('D:/ClSl')
     if d_path.parent.exists():
         try:
@@ -19,7 +19,7 @@ def _find_best_base_dir():
         except:
             pass
 
-    # 扫描其他盘符
+    # 扫其他盘符
     best_drive = None
     best_free = -1
     for letter in 'DEFGHIJKLMNOPQRSTUVWXYZ':
@@ -36,8 +36,7 @@ def _find_best_base_dir():
 
     if best_drive:
         return best_drive / 'ClSl'
-
-    # 实在不行回到到 C 盘
+    # 实在不行回C
     c_path = Path('C:/ClSl')
     try:
         c_path.mkdir(parents=True, exist_ok=True)
@@ -51,6 +50,15 @@ def _find_best_base_dir():
 
 BASE_DIR = _find_best_base_dir()
 CONFIG_FILE = BASE_DIR / 'config.yaml'
+
+EMERGENCY_MODE = False
+if BASE_DIR.drive == 'C:':
+    try:
+        usage = shutil.disk_usage('C:')
+        if usage.free < 10 * 1024 ** 3:
+            EMERGENCY_MODE = True
+    except:
+        pass
 
 def load_config():
     default = {
@@ -89,6 +97,9 @@ def load_config():
             "gradle_cache": True,
             "conda_pkgs": True,
             "jdk_versions": True,
+            "thumbnails": True,
+            "error_reports": True,
+            "delivery_opt": True,
             "recycle_bin": True
         }
     }
@@ -146,6 +157,9 @@ scanner:  #扫描时是否启用这些选项（只有大文件是false，不大�
   gradle_cache: true    # Gradle 缓存
   conda_pkgs: true      # Conda 包缓存
   jdk_versions: true    # JDK 多版本残留
+  thumbnails: true      # 缩略图缓存
+  error_reports: true   # Windows错误报告
+  delivery_opt: true    # 传递优化文件
   recycle_bin: true     # 回收站
 
 backup:
@@ -197,6 +211,9 @@ ENABLE_MAVEN_REPO = _SCANNER.get("maven_repo", True)
 ENABLE_GRADLE_CACHE = _SCANNER.get("gradle_cache", True)
 ENABLE_CONDA_PKGS = _SCANNER.get("conda_pkgs", True)
 ENABLE_JDK_VERSIONS = _SCANNER.get("jdk_versions", True)
+ENABLE_THUMBNAILS = _SCANNER.get("thumbnails", True)
+ENABLE_ERROR_REPORTS = _SCANNER.get("error_reports", True)
+ENABLE_DELIVERY_OPT = _SCANNER.get("delivery_opt", True)
 ENABLE_RECYCLE_BIN = _SCANNER.get("recycle_bin", True)
 
 PATH_TEMP_SYSTEM = Path(f'{SYSTEM_DRIVE}/Windows/Temp')
@@ -256,6 +273,10 @@ _BASE_SCAN_ITEMS = [
     {'id': 'gradle_cache', 'name': 'Gradle 缓存', 'risk': 'medium'},
     {'id': 'conda_pkgs', 'name': 'Conda 包缓存', 'risk': 'low'},
     {'id': 'jdk_versions', 'name': 'JDK 多版本残留', 'risk': 'high'},
+    {'id': 'thumbnails', 'name': '缩略图缓存', 'risk': 'low'},
+    {'id': 'error_reports', 'name': 'Windows错误报告', 'risk': 'low'},
+    {'id': 'delivery_opt', 'name': '传递优化文件', 'risk': 'low'},
+    {'id': 'recycle_bin', 'name': '回收站', 'risk': 'low'},
 ]
 
 ENABLE_MAP = {
@@ -282,6 +303,10 @@ ENABLE_MAP = {
     'gradle_cache': ENABLE_GRADLE_CACHE,
     'conda_pkgs': ENABLE_CONDA_PKGS,
     'jdk_versions': ENABLE_JDK_VERSIONS,
+    'thumbnails': ENABLE_THUMBNAILS,
+    'error_reports': ENABLE_ERROR_REPORTS,
+    'delivery_opt': ENABLE_DELIVERY_OPT,
+    'recycle_bin': ENABLE_RECYCLE_BIN,
 }
 
 SCAN_ITEMS = []

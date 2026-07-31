@@ -71,7 +71,9 @@ def scan_winsxs() -> Dict:
     out = _run_cmd("Dism /Online /Cleanup-Image /AnalyzeComponentStore")
     if "推荐使用组件存储清理 : 是" not in out:
         return {"size_gb": 0.0, "can_clean": False, "detail": "WinSxS 无需清理"}
-    m = re.search(r"组件存储的实际大小\s*:\s*([\d.]+)\s*MB", out)
+    m = re.search(r"可回收的组件存储空间\s*:\s*([\d.]+)\s*MB", out)
+    if not m:
+        m = re.search(r"组件存储的实际大小\s*:\s*([\d.]+)\s*MB", out)
     if m:
         gb = round(float(m.group(1)) / 1024, 2)
         return {"size_gb": gb, "can_clean": True, "detail": f"WinSxS 可清理 {gb:.2f} GB（清理后将无法卸载 Windows 更新）"}
@@ -95,7 +97,14 @@ def scan_prefetch() -> Dict:
     p = PATH_PREFETCH
     if not p.exists():
         return {"size_gb": 0.0, "can_clean": False, "detail": "预读文件夹不存在"}
-    gb = _get_size_gb(_get_folder_size(p))
+    total = 0
+    for f in p.glob('*'):
+        if f.is_file():
+            try:
+                total += f.stat().st_size
+            except (OSError, PermissionError):
+                pass
+    gb = _get_size_gb(total)
     return {"size_gb": gb, "can_clean": gb > 0.01, "detail": f"预读缓存 {gb:.2f} GB"}
 
 def scan_update_cache() -> Dict:
@@ -314,12 +323,18 @@ def scan_log_files() -> Dict:
         return {"size_gb": 0.0, "can_clean": False, "detail": "系统日志目录不存在"}
     total = 0
     extensions = ('.log', '.etl', '.evtx')
+    now = time.time()
+    cutoff = now - 30 * 24 * 3600
     for ext in extensions:
         for f in p.rglob(f'*{ext}'):
             if f.is_file():
-                total += f.stat().st_size
+                try:
+                    if f.stat().st_mtime < cutoff:
+                        total += f.stat().st_size
+                except (OSError, PermissionError):
+                    pass
     size_gb = _get_size_gb(total)
-    return {"size_gb": size_gb, "can_clean": size_gb > 0.01, "detail": f"日志文件 (log/etl/evtx) {size_gb:.2f} GB"}
+    return {"size_gb": size_gb, "can_clean": size_gb > 0.01, "detail": f"日志文件 (超30天) {size_gb:.2f} GB"}
 
 def scan_installer_cache() -> Dict:
     p = PATH_INSTALLER_CACHE
@@ -421,6 +436,38 @@ def scan_jdk_versions() -> Dict:
         "detail": detail
     }
 
+def scan_thumbnails() -> Dict:
+    p = USER_HOME / 'AppData/Local/Microsoft/Windows/Explorer'
+    total = 0
+    if p.exists():
+        for f in p.glob('thumbcache_*.db'):
+            try:
+                total += f.stat().st_size
+            except (OSError, PermissionError):
+                pass
+    size_gb = _get_size_gb(total)
+    return {"size_gb": size_gb, "can_clean": size_gb > 0.01, "detail": f"缩略图缓存 {size_gb:.2f} GB"}
+
+def scan_error_reports() -> Dict:
+    paths = [
+        USER_HOME / 'AppData/Local/Microsoft/Windows/WER',
+        Path(f'{SYSTEM_DRIVE}/ProgramData/Microsoft/Windows/WER'),
+    ]
+    total = 0
+    for p in paths:
+        if p.exists():
+            total += _get_folder_size(p, max_depth=2)
+    size_gb = _get_size_gb(total)
+    return {"size_gb": size_gb, "can_clean": size_gb > 0.01, "detail": f"错误报告 {size_gb:.2f} GB"}
+
+def scan_delivery_opt() -> Dict:
+    p = Path(f'{SYSTEM_DRIVE}/Windows/SoftwareDistribution/DeliveryOptimization')
+    total = 0
+    if p.exists():
+        total = _get_folder_size(p, max_depth=3)
+    size_gb = _get_size_gb(total)
+    return {"size_gb": size_gb, "can_clean": size_gb > 0.01, "detail": f"传递优化 {size_gb:.2f} GB"}
+
 SCAN_MAP = {
     'shadow': scan_shadow_storage,
     'winsxs': scan_winsxs,
@@ -445,6 +492,9 @@ SCAN_MAP = {
     'gradle_cache': scan_gradle_cache,
     'conda_pkgs': scan_conda_pkgs,
     'jdk_versions': scan_jdk_versions,
+    'thumbnails': scan_thumbnails,
+    'error_reports': scan_error_reports,
+    'delivery_opt': scan_delivery_opt,
 }
 
 def get_all_scans() -> Dict[str, Dict]:

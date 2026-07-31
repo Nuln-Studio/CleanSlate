@@ -1,12 +1,64 @@
 import os
 import yaml
 from pathlib import Path
+import sys
+import shutil
 
 SYSTEM_DRIVE = os.environ.get('SystemDrive', 'C:')
 CURRENT_USER = os.environ.get('USERNAME', 'Administrator')
 USER_HOME = Path(os.environ.get('USERPROFILE', f'{SYSTEM_DRIVE}\\Users\\{CURRENT_USER}'))
 
-CONFIG_FILE = Path(__file__).parent / 'config.yaml'
+def _find_best_base_dir():
+    # 优先D盘放
+    d_path = Path('D:/ClSl')
+    if d_path.parent.exists():
+        try:
+            usage = shutil.disk_usage(d_path.parent)
+            if usage.free > 1 * 1024 ** 3:
+                return d_path
+        except:
+            pass
+
+    # 扫其他盘符
+    best_drive = None
+    best_free = -1
+    for letter in 'DEFGHIJKLMNOPQRSTUVWXYZ':
+        drive_path = Path(f'{letter}:/')
+        if not drive_path.exists():
+            continue
+        try:
+            usage = shutil.disk_usage(drive_path)
+            if usage.free > best_free and usage.free >= 500 * 1024 ** 2:
+                best_free = usage.free
+                best_drive = drive_path
+        except:
+            continue
+
+    if best_drive:
+        return best_drive / 'ClSl'
+    # 实在不行回C
+    c_path = Path('C:/ClSl')
+    try:
+        c_path.mkdir(parents=True, exist_ok=True)
+        c_path.rmdir()
+        return c_path
+    except:
+        if getattr(sys, 'frozen', False):
+            return Path(sys.executable).parent / 'ClSl'
+        else:
+            return Path(__file__).parent / 'ClSl'
+
+BASE_DIR = _find_best_base_dir()
+CONFIG_FILE = BASE_DIR / 'config.yaml'
+
+EMERGENCY_MODE = False
+if BASE_DIR.drive == 'C:':
+    try:
+        usage = shutil.disk_usage('C:')
+        if usage.free < 10 * 1024 ** 3:
+            EMERGENCY_MODE = True
+    except:
+        pass
 
 def load_config():
     default = {
@@ -16,10 +68,11 @@ def load_config():
         },
         "backup": {
             "enabled": True,
-            "dir": "D:/ClSl_bin"
+            "dir": str(BASE_DIR / 'backup')
         },
         "aggressive_mode_enabled": False,
         "enable_patch": False,
+        "patch_dir": str(BASE_DIR / 'patches'),
         "scanner": {
             "shadow": True,
             "winsxs": True,
@@ -44,6 +97,9 @@ def load_config():
             "gradle_cache": True,
             "conda_pkgs": True,
             "jdk_versions": True,
+            "thumbnails": True,
+            "error_reports": True,
+            "delivery_opt": True,
             "recycle_bin": True
         }
     }
@@ -68,8 +124,9 @@ def load_config():
             return default
     else:
         try:
+            CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                f.write("""# 配置文件可按需修改
+                f.write(f"""# 配置文件可按需修改
 
 custom_cache_dirs: []  # 自定义缓存目录列表
 
@@ -100,11 +157,14 @@ scanner:  #扫描时是否启用这些选项（只有大文件是false，不大�
   gradle_cache: true    # Gradle 缓存
   conda_pkgs: true      # Conda 包缓存
   jdk_versions: true    # JDK 多版本残留
+  thumbnails: true      # 缩略图缓存
+  error_reports: true   # Windows错误报告
+  delivery_opt: true    # 传递优化文件
   recycle_bin: true     # 回收站
 
 backup:
   enabled: true  # true 删除前自动备份，false 不备份（中高风险项强制备份）
-  dir: "D:/ClSl_bin"  # 备份根目录，不存在会自动创建
+  dir: "{(BASE_DIR / 'backup').as_posix()}"  # 备份根目录，不存在会自动创建（优先D盘，没有会尝试找其他盘符，其他盘符也没有就存C盘了）
 
 aggressive_mode_enabled: false  # true 显示激进模式选项，false 只显示安全模式
 
@@ -121,11 +181,11 @@ CONFIG = load_config()
 CUSTOM_CACHE_DIRS = [Path(p) for p in CONFIG.get("custom_cache_dirs", []) if p]
 RECYCLE_BIN_ENABLED = CONFIG.get("recycle_bin", {}).get("enabled", False)
 BACKUP_ENABLED = CONFIG.get("backup", {}).get("enabled", True)
-BACKUP_DIR = Path(CONFIG.get("backup", {}).get("dir", "D:/ClSl_bin"))
+BACKUP_DIR = Path(CONFIG.get("backup", {}).get("dir", str(BASE_DIR / 'backup')))
 AGGRESSIVE_MODE_ENABLED = CONFIG.get("aggressive_mode_enabled", False)
 ENABLE_PATCH = CONFIG.get("enable_patch", False)
 BACKUP_RETENTION_DAYS = CONFIG.get("backup", {}).get("retention_days", 30)
-PATCH_DIR = Path(CONFIG.get("patch_dir", "D:/CleanSlate_Patches"))
+PATCH_DIR = Path(CONFIG.get("patch_dir", str(BASE_DIR / 'patches')))
 
 _SCANNER = CONFIG.get("scanner", {})
 ENABLE_SHADOW = _SCANNER.get("shadow", True)
@@ -151,6 +211,9 @@ ENABLE_MAVEN_REPO = _SCANNER.get("maven_repo", True)
 ENABLE_GRADLE_CACHE = _SCANNER.get("gradle_cache", True)
 ENABLE_CONDA_PKGS = _SCANNER.get("conda_pkgs", True)
 ENABLE_JDK_VERSIONS = _SCANNER.get("jdk_versions", True)
+ENABLE_THUMBNAILS = _SCANNER.get("thumbnails", True)
+ENABLE_ERROR_REPORTS = _SCANNER.get("error_reports", True)
+ENABLE_DELIVERY_OPT = _SCANNER.get("delivery_opt", True)
 ENABLE_RECYCLE_BIN = _SCANNER.get("recycle_bin", True)
 
 PATH_TEMP_SYSTEM = Path(f'{SYSTEM_DRIVE}/Windows/Temp')
@@ -210,6 +273,10 @@ _BASE_SCAN_ITEMS = [
     {'id': 'gradle_cache', 'name': 'Gradle 缓存', 'risk': 'medium'},
     {'id': 'conda_pkgs', 'name': 'Conda 包缓存', 'risk': 'low'},
     {'id': 'jdk_versions', 'name': 'JDK 多版本残留', 'risk': 'high'},
+    {'id': 'thumbnails', 'name': '缩略图缓存', 'risk': 'low'},
+    {'id': 'error_reports', 'name': 'Windows错误报告', 'risk': 'low'},
+    {'id': 'delivery_opt', 'name': '传递优化文件', 'risk': 'low'},
+    {'id': 'recycle_bin', 'name': '回收站', 'risk': 'low'},
 ]
 
 ENABLE_MAP = {
@@ -236,6 +303,10 @@ ENABLE_MAP = {
     'gradle_cache': ENABLE_GRADLE_CACHE,
     'conda_pkgs': ENABLE_CONDA_PKGS,
     'jdk_versions': ENABLE_JDK_VERSIONS,
+    'thumbnails': ENABLE_THUMBNAILS,
+    'error_reports': ENABLE_ERROR_REPORTS,
+    'delivery_opt': ENABLE_DELIVERY_OPT,
+    'recycle_bin': ENABLE_RECYCLE_BIN,
 }
 
 SCAN_ITEMS = []

@@ -29,6 +29,9 @@ scanner:  #扫描时是否启用这些选项（只有大文件是false，不大�
   gradle_cache: true    # Gradle 缓存
   conda_pkgs: true      # Conda 包缓存
   jdk_versions: true    # JDK 多版本残留
+  thumbnails: true      # 缩略图缓存
+  error_reports: true   # Windows错误报告
+  delivery_opt: true    # 传递优化文件
   recycle_bin: true     # 回收站
 
 backup:

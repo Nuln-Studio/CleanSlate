@@ -6,7 +6,7 @@ import struct
 from pathlib import Path
 from scanner import get_all_scans
 from cleaner import run_cleaner, CLEAN_MAP
-from config import AGGRESSIVE_MODE_ENABLED, ENABLE_PATCH, PATCH_DIR, BACKUP_DIR, BACKUP_RETENTION_DAYS
+from config import AGGRESSIVE_MODE_ENABLED, ENABLE_PATCH, PATCH_DIR, BACKUP_DIR, BACKUP_RETENTION_DAYS, EMERGENCY_MODE, BASE_DIR
 
 
 class AppState:
@@ -14,7 +14,7 @@ class AppState:
     # ◐⩊◑
 
 
-TEMP_PATCH_DIR = Path('D:/ClSl/temp_patches')
+TEMP_PATCH_DIR = BASE_DIR / 'temp_patches'
 PATCH_RETENTION_DAYS = 30
 
 _patch_scans = []
@@ -55,9 +55,10 @@ def display_results(data):
     print("=" * 70)
     return id_map
 
-def show_clean_result(success_count, fail_count, disk_info, bfree_gb):
+def show_clean_result(success_count, fail_count, total_freed_gb):
     print("\n" + "-" * 70)
     print(f"清理完成: 成功 {success_count} 项, 失败 {fail_count} 项")
+    print(f"总计释放: {total_freed_gb:.2f} GB")
     print("-" * 70)
 
 def progress_disk(total_gb, used_gb):
@@ -259,6 +260,12 @@ def main():
     clean_backup_files()
     clean_temp_patches()
 
+    if EMERGENCY_MODE:
+        print("\n[警告] C盘剩余空间不足10GB，自动进入降级模式：")
+        print("  - 跳过高风险清理项（还原点、WinSxS、JDK等）")
+        print("  - 禁用备份，避免占用C盘空间")
+        print("  - 仅清理安全的临时文件和缓存\n")
+
     total_gb, free_gb, used_gb = get_disk_info()
     bfree_gb = free_gb
     progerss_str, progerss = progress_disk(total_gb, used_gb)
@@ -282,6 +289,18 @@ def main():
 
     while True:
         id_map = display_results(AppState.data)
+
+        safe_total = 0.0
+        all_total = 0.0
+        for item_id, info in AppState.data.items():
+            size = info.get('size_gb', 0)
+            risk = info.get('risk', 'low')
+            all_total += size
+            if risk in ('low', 'medium'):
+                safe_total += size
+
+        print(f"\n安全模式预计释放: {safe_total:.2f} GB | 激进模式预计释放: {all_total:.2f} GB")
+
         print("\n操作选项:")
         print("  1. 手动选择要清理的项")
         if AGGRESSIVE_MODE_ENABLED:
@@ -347,7 +366,10 @@ def main():
             print("\n开始清理...")
             success_count = 0
             fail_count = 0
-            for item_id in selected_ids:
+            total_freed = 0.0
+            total_items = len(selected_ids)
+            for item_idx, item_id in enumerate(selected_ids, 1):
+                print(f"\n[清理项 {item_idx}/{total_items}] 正在处理: {AppState.data.get(item_id, {}).get('name', item_id)}")
                 if item_id not in AppState.data:
                     print(f"跳过未知项: {item_id}")
                     continue
@@ -361,10 +383,11 @@ def main():
                 if result['success']:
                     print(f"  [成功] {item_id} - {result['message']}")
                     success_count += 1
+                    total_freed += result.get('freed_gb', 0.0)
                 else:
                     print(f"  [失败] {item_id} - {result['message']}")
                     fail_count += 1
-            show_clean_result(success_count, fail_count, get_disk_info(), bfree_gb)
+            show_clean_result(success_count, fail_count, total_freed)
             input("按回车键继续...")
             print("重新扫描...")
             AppState.data = get_all_scans()
@@ -409,9 +432,14 @@ def main():
                 print("取消。")
                 continue
             print("开始清理...")
+            print("清理时间较长，请耐心等待，不要关闭这个窗口")
+            print("清理时预期可能与结果不符（例如日志文件只删除）")
             success_count = 0
             fail_count = 0
-            for item_id in selected_ids:
+            total_freed = 0.0
+            total_items = len(selected_ids)
+            for item_idx, item_id in enumerate(selected_ids, 1):
+                print(f"\n[清理项 {item_idx}/{total_items}] 正在处理: {AppState.data.get(item_id, {}).get('name', item_id)}")
                 risk = AppState.data[item_id].get('risk', 'low')
                 if risk == 'high':
                     sec = input(f"项 '{item_id}' 风险为高，仍继续？(y/N): ").strip().lower()
@@ -422,10 +450,11 @@ def main():
                 if result['success']:
                     print(f"  [成功] {item_id} - {result['message']}")
                     success_count += 1
+                    total_freed += result.get('freed_gb', 0.0)
                 else:
                     print(f"  [失败] {item_id} - {result['message']}")
                     fail_count += 1
-            show_clean_result(success_count, fail_count, get_disk_info(), bfree_gb)
+            show_clean_result(success_count, fail_count, total_freed)
             input("按回车键继续...")
             print("重新扫描...")
             AppState.data = get_all_scans()
