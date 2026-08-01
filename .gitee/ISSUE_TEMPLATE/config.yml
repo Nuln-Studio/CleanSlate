@@ -1,8 +1,5 @@
 blank_issues_enabled: false
-templates:
-  - name: Bug故障反馈
-    about: 程序报错、运行异常、清理逻辑出错、功能失效等问题提交
-    file: bug.yml
-  - name: 功能优化与新增建议
-    about: 功能新增、规则优化、使用体验改进相关提议
-    file: feature.yml
+contact_links:
+  - name: 项目文档说明
+    url: https://gitee.com/bohh/CleanSlate/blob/master/README.md
+    about: 查看项目使用说明、常见问题

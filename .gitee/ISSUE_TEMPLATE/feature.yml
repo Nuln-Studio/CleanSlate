@@ -1,33 +1,43 @@
 name: 功能优化与新增建议
-description: 提交功能新增、清理规则调整、使用流程优化等需求
-title: "[建议] 一句话概括需求"
-labels: ["optimize"]
-assignees:
-  - bohh
+description: 新功能需求、现有功能改进、使用体验优化
+title: "[功能建议]: "
+labels: ["enhancement"]
+assignees: []
 body:
   - type: markdown
     attributes:
-      value: ### 需求说明
+      value: |
+        感谢反馈需求，描述越详细越方便落地开发
   - type: textarea
-    id: demand_detail
+    id: related-pain
     attributes:
-      label: 需求完整描述
-      placeholder: 说明想要新增/调整的内容，写明改动逻辑
+      label: 现有痛点
+      description: 当前使用有哪些不便、缺失了什么能力
     validations:
       required: true
   - type: textarea
-    id: usage_scenario
+    id: ideal-function
     attributes:
-      label: 使用场景
-      placeholder: 说明该优化在哪种使用场景下可以提升使用效果
+      label: 想要的功能细节
+      description: 描述功能该如何使用、实现逻辑
     validations:
       required: true
-
-  - type: markdown
-    attributes:
-      value: ### 补充信息
   - type: textarea
-    id: extra_info
+    id: alternative-way
     attributes:
-      label: 补充细节、参考方案
-      placeholder: 可填写参考实现方式、同类工具效果、额外限制要求等
+      label: 目前临时替代方案
+      description: 有没有勉强能用的变通办法
+    validations:
+      required: false
+  - type: textarea
+    id: extra-desc
+    attributes:
+      label: 补充说明、参考截图
+    validations:
+      required: false
+  - type: checkboxes
+    attributes:
+      label: 开发参与意愿
+      options:
+        - label: 愿意参与代码编写，提交PR贡献代码
+          required: false

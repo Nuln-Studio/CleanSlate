@@ -1,71 +1,51 @@
 name: Bug故障反馈
-description: 用于上报程序报错、运行异常、清理错误、功能异常等问题
-title: "[Bug] 简要描述故障现象"
+description: 程序运行报错、异常闪退、功能不正常等问题
+title: "[Bug]: "
 labels: ["bug"]
-assignees:
-  - bohh
+assignees: []
 body:
   - type: markdown
     attributes:
-      value: ### 基础运行环境
+      value: |
+        请完整填写下面信息，信息不全可能会延迟排查进度
   - type: input
-    id: windows_version
+    id: system-version
     attributes:
-      label: Windows系统版本
-      placeholder: 例：Windows 11 24H2、Windows 10 22H2
+      label: 操作系统版本
+      description: Windows版本，例如 Win10 22H2 / Win11 24H2
     validations:
       required: true
   - type: input
-    id: app_version
+    id: program-version
     attributes:
       label: CleanSlate程序版本
-      placeholder: 例：v1.0正式版
-    validations:
-      required: true
-  - type: dropdown
-    id: run_type
-    attributes:
-      label: 程序运行方式
-      options:
-        - 绿色免安装exe
-        - 安装版exe
-        - Python源码启动
-    validations:
-      required: true
-
-  - type: markdown
-    attributes:
-      value: ### 故障详情
-  - type: textarea
-    id: bug_desc
-    attributes:
-      label: 问题详细描述
-      placeholder: 写明出现的异常表现，以及程序正常应该呈现的效果
+      description: 填写使用的打包版本号
     validations:
       required: true
   - type: textarea
-    id: reproduce_step
+    id: reproduce-steps
     attributes:
-      label: 完整复现步骤
-      placeholder: 按顺序写明操作流程，确保可以复现本次故障
+      label: 复现步骤
+      description: 一步步写出怎么操作能稳定复现问题
     validations:
       required: true
-
-  - type: markdown
-    attributes:
-      value: ### 补充资料
   - type: textarea
-    id: supplement
+    id: actual-error
     attributes:
-      label: 报错日志、截图、自定义补丁yaml文件
-      placeholder: 粘贴报错文字、上传截图、附上使用的yaml配置文件
-
-  - type: markdown
+      label: 实际出现的错误现象
+      description: 报错弹窗、闪退、日志报错、异常行为
+    validations:
+      required: true
+  - type: textarea
+    id: expect-behavior
     attributes:
-      value: |
-        ---
-        ### 排查前置建议
-        1. 程序运行报错可尝试右键以管理员身份重新运行；
-        2. 源码运行请先执行命令安装依赖：`pip install pyyaml`；
-        3. 源码运行要求Python版本3.11及以上，开发环境为Python3.14.6；
-        4. 软件当前仅支持命令行使用，暂无图形GUI界面。
+      label: 预期正常效果
+    validations:
+      required: true
+  - type: textarea
+    id: log-info
+    attributes:
+      label: 日志/截图补充
+      description: 粘贴报错日志、上传截图，无则可不填
+    validations:
+      required: false
