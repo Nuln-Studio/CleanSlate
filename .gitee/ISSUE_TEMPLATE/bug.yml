@@ -1,0 +1,71 @@
+name: Bug故障反馈
+description: 用于上报程序报错、运行异常、清理错误、功能异常等问题
+title: "[Bug] 简要描述故障现象"
+labels: ["bug"]
+assignees:
+  - bohh
+body:
+  - type: markdown
+    attributes:
+      value: ### 基础运行环境
+  - type: input
+    id: windows_version
+    attributes:
+      label: Windows系统版本
+      placeholder: 例：Windows 11 24H2、Windows 10 22H2
+    validations:
+      required: true
+  - type: input
+    id: app_version
+    attributes:
+      label: CleanSlate程序版本
+      placeholder: 例：v1.0正式版
+    validations:
+      required: true
+  - type: dropdown
+    id: run_type
+    attributes:
+      label: 程序运行方式
+      options:
+        - 绿色免安装exe
+        - 安装版exe
+        - Python源码启动
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: ### 故障详情
+  - type: textarea
+    id: bug_desc
+    attributes:
+      label: 问题详细描述
+      placeholder: 写明出现的异常表现，以及程序正常应该呈现的效果
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce_step
+    attributes:
+      label: 完整复现步骤
+      placeholder: 按顺序写明操作流程，确保可以复现本次故障
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: ### 补充资料
+  - type: textarea
+    id: supplement
+    attributes:
+      label: 报错日志、截图、自定义补丁yaml文件
+      placeholder: 粘贴报错文字、上传截图、附上使用的yaml配置文件
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ### 排查前置建议
+        1. 程序运行报错可尝试右键以管理员身份重新运行；
+        2. 源码运行请先执行命令安装依赖：`pip install pyyaml`；
+        3. 源码运行要求Python版本3.11及以上，开发环境为Python3.14.6；
+        4. 软件当前仅支持命令行使用，暂无图形GUI界面。

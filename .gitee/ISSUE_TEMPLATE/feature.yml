@@ -1,0 +1,33 @@
+name: 功能优化与新增建议
+description: 提交功能新增、清理规则调整、使用流程优化等需求
+title: "[建议] 一句话概括需求"
+labels: ["optimize"]
+assignees:
+  - bohh
+body:
+  - type: markdown
+    attributes:
+      value: ### 需求说明
+  - type: textarea
+    id: demand_detail
+    attributes:
+      label: 需求完整描述
+      placeholder: 说明想要新增/调整的内容，写明改动逻辑
+    validations:
+      required: true
+  - type: textarea
+    id: usage_scenario
+    attributes:
+      label: 使用场景
+      placeholder: 说明该优化在哪种使用场景下可以提升使用效果
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: ### 补充信息
+  - type: textarea
+    id: extra_info
+    attributes:
+      label: 补充细节、参考方案
+      placeholder: 可填写参考实现方式、同类工具效果、额外限制要求等

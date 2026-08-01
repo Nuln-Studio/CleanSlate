@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+templates:
+  - name: Bug故障反馈
+    about: 程序报错、运行异常、清理逻辑出错、功能失效等问题提交
+    file: bug.yml
+  - name: 功能优化与新增建议
+    about: 功能新增、规则优化、使用体验改进相关提议
+    file: feature.yml
