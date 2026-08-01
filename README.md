@@ -8,9 +8,9 @@
 
 ## 安装与运行
 
-1. 下载 `CleanSlate_noSetup_v1.0.2.zip` 或运行 `CleanSlate_Setup_v1.0.2.exe`(源代码请下载`source code(zip)`或`source code(tar.gz)`)
+1. 下载 `CleanSlate_noSetup_v1.0.3.zip` 或运行 `CleanSlate_Setup_v1.0.3.exe`(源代码请下载`source code(zip)`或`source code(tar.gz)`)
 2. 解压或安装完直接运行`clsl.exe`文件即可运行。
-3. 源码主入口为`main.py`
+3. 源码主入口为`Oadmin.py`
 4. 因为作者木有rmb买服务器所以大家只能手动更新本软件了TAT
 
 ### 快速开始
@@ -26,10 +26,10 @@
 
 ## 当前版本（正式版）
 
-CleanSlate-v1.0.2-正式版，修复了一些已知bug，优化了文本UI与扫描规则。exe程序目前稳定可执行清理工作，支持补丁系统。目前exe程序至多占用8.5MB，源码81.5KB,生成的配置文件目前仅有2KB
+CleanSlate-v1.0.3-正式版，修复dll库缺失问题（打包模式变成多文件模式，自带dll库依赖），主入口改为Oadmin.py，exe程序目前稳定可执行清理工作，支持补丁系统。目前exe程序至多占用25MB，源码82KB,生成的配置文件目前仅有2KB
 
 ## 支持项目
 
 如果你觉得这个工具有帮助，可以在这里支持我：
 
-- 爱发电：[爱发电](https://afdian.com/a/bohhc1000)
+- 爱发电：[Bohh](https://afdian.com/a/bohhc1000)

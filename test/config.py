@@ -55,9 +55,9 @@ EMERGENCY_MODE = False
 if BASE_DIR.drive == 'C:':
     try:
         usage = shutil.disk_usage('C:')
-        if usage.free < 10 * 1024 ** 3:
+        if usage.free < 2 * 1024 ** 3:
             EMERGENCY_MODE = True
-    except:
+    except Exception:
         pass
 
 def load_config():
