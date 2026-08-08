@@ -40,5 +40,6 @@ CleanSlate-v1.0.3-正式版，修复dll库缺失问题（打包模式变成多�
 ---
 ### 同源项目
 `正在持续维护的项目...`
+`（主仓库为Gitee，链接导入进Gitee而非GitHub,但是两端仓库共用一套README请谅解）`
 - **[MCOpen](https://gitee.com/nuln-studio/MCOpen)** - 开源 Minecraft 启动器
 - **[GraphVein](https://gitee.com/nuln-studio/graph-vein)** - 树形逻辑导图编辑器
