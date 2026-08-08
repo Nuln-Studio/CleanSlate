@@ -1,6 +1,7 @@
 # 白板(CleanSlate)
 
 一个基于Python的命令行 C 盘清理工具，绿色免安装(如果你想的话同时也提供安装包)
+* 零阑工坊开发
 
 ## 为什么叫“白板”
 
@@ -30,6 +31,13 @@ CleanSlate-v1.0.3-正式版，修复dll库缺失问题（打包模式变成多�
 
 ## 支持项目
 
-如果你觉得这个工具有帮助，可以在这里支持我：
+### 赞助项目
+如果你觉得这个工具有帮助，可以在这里支持我们：
 
-- 爱发电：[Bohh](https://afdian.com/a/bohhc1000)
+- 爱发电：[Nuln](https://afdian.com/a/bohhc1000)
+
+---
+### 同源项目
+`正在持续维护的项目...`
+- **[MCOpen](https://gitee.com/nuln-studio/MCOpen)** - 开源 Minecraft 启动器
+- **[GraphVein](https://gitee.com/nuln-studio/graph-vein)** - 树形逻辑导图编辑器
