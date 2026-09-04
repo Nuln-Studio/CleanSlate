@@ -9,7 +9,6 @@ CURRENT_USER = os.environ.get('USERNAME', 'Administrator')
 USER_HOME = Path(os.environ.get('USERPROFILE', f'{SYSTEM_DRIVE}\\Users\\{CURRENT_USER}'))
 
 def _find_best_base_dir():
-    # 优先D盘放
     d_path = Path('D:/ClSl')
     if d_path.parent.exists():
         try:
@@ -18,8 +17,6 @@ def _find_best_base_dir():
                 return d_path
         except:
             pass
-
-    # 扫其他盘符
     best_drive = None
     best_free = -1
     for letter in 'DEFGHIJKLMNOPQRSTUVWXYZ':
@@ -36,7 +33,7 @@ def _find_best_base_dir():
 
     if best_drive:
         return best_drive / 'ClSl'
-    # 实在不行回C
+
     c_path = Path('C:/ClSl')
     try:
         c_path.mkdir(parents=True, exist_ok=True)
@@ -133,9 +130,9 @@ custom_cache_dirs: []  # 自定义缓存目录列表
 recycle_bin:
   enabled: false  # false 不走回收站，直接删除（释放空间）
 
-scanner:  #扫描时是否启用这些选项（只有大文件是false，不大好使就给关了）
-  shadow: true          # 系统还原点
-  winsxs: true          # WinSxS 组件存储
+scanner:  #扫描时是否启用这些选项（大文件不大好使就给关了）
+  shadow: false          # 系统还原点
+  winsxs: false          # WinSxS 组件存储
   temp_sys: true        # 系统临时文件
   temp_user: true       # 用户临时文件
   prefetch: true        # 预读缓存
@@ -144,7 +141,7 @@ scanner:  #扫描时是否启用这些选项（只有大文件是false，不大�
   wechat_cache: true    # 微信缓存
   hibernation: true     # 休眠文件
   duplicate_files: true # 重复文件
-  large_files: false     # 大文件 (后续出补丁，启用那个补丁选项才能加载补丁然后用)
+  large_files: false    # 大文件 (后续出补丁，启用那个补丁选项才能加载补丁然后用)
   empty_folders: true   # 空文件夹
   browser_cache: true   # 浏览器缓存
   ide_cache: true       # IDE 缓存
@@ -172,6 +169,9 @@ enable_patch: false  # true 显示补丁加载选项，false 隐藏
 """)
             print(f"[Config] 已生成配置文件: {CONFIG_FILE}")
             print("[Config] 如需自定义清理行为，请修改 config.yaml")
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                new_cfg = yaml.safe_load(f)
+            return new_cfg
         except Exception:
             pass
         return default

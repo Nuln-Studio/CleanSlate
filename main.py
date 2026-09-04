@@ -101,8 +101,6 @@ def clean_backup_files():
 
 def clean_temp_patches():
     return clean_old_files(TEMP_PATCH_DIR, PATCH_RETENTION_DAYS, "*", "临时补丁文件")
-
-#.py and .bcs
 import hashlib
 def load_patch_file(filepath):
     filepath = Path(filepath)
@@ -256,7 +254,6 @@ def load_patches_from_dir():
         print(f"[补丁] 共加载 {loaded} 个补丁")
 
 def main():
-    # 启动时自动超度过期文件
     clean_backup_files()
     clean_temp_patches()
 
@@ -274,8 +271,6 @@ def main():
     print("正在扫描磁盘，请稍候... (扫描过程中会显示进度，请耐心等待)")
 
     AppState.data = get_all_scans()
-
-    # 加载补丁目录
     if ENABLE_PATCH:
         load_patches_from_dir()
 
