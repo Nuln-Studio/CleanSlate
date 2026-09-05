@@ -13,7 +13,7 @@ class AppState:
     data = {}      
     # ◐⩊◑
 
-
+VERSION_NUM = "正式版v1.0.4" #别忘了更新这条！！！！！！！！！
 TEMP_PATCH_DIR = BASE_DIR / 'temp_patches'
 PATCH_RETENTION_DAYS = 30
 
@@ -256,6 +256,10 @@ def load_patches_from_dir():
 def main():
     clean_backup_files()
     clean_temp_patches()
+    print(f"当前客户端版本：{VERSION_NUM}")
+    print("制作团队：零阑工坊(Nuln Studio)")
+
+    input("按下回车继续...")
 
     if EMERGENCY_MODE:
         print("\n[警告] C盘剩余空间不足2GB，自动进入降级模式：")
