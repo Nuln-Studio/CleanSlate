@@ -1,0 +1,6 @@
+{
+    "version_code":1004,
+    "latest_version":"v1.0.4正式版",
+    "note":"优化配置文件生成＆读取逻辑，程序加入客户端版本显示（虽然可能没有什么用处吧）。不再支持安装包版本，只保留绿色安装渠道",
+    "github_release_url":"https://github.com/Nuln-Studio/CleanSlate/releases"
+}
