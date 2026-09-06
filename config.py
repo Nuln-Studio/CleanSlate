@@ -1,13 +1,12 @@
+#配置文件内容改之前先群里@一下我，改之前先备份
 import os
 import yaml
 from pathlib import Path
 import sys
 import shutil
-
 SYSTEM_DRIVE = os.environ.get('SystemDrive', 'C:')
 CURRENT_USER = os.environ.get('USERNAME', 'Administrator')
 USER_HOME = Path(os.environ.get('USERPROFILE', f'{SYSTEM_DRIVE}\\Users\\{CURRENT_USER}'))
-
 def _find_best_base_dir():
     d_path = Path('D:/ClSl')
     if d_path.parent.exists():
@@ -30,10 +29,8 @@ def _find_best_base_dir():
                 best_drive = drive_path
         except:
             continue
-
     if best_drive:
         return best_drive / 'ClSl'
-
     c_path = Path('C:/ClSl')
     try:
         c_path.mkdir(parents=True, exist_ok=True)
@@ -44,10 +41,8 @@ def _find_best_base_dir():
             return Path(sys.executable).parent / 'ClSl'
         else:
             return Path(__file__).parent / 'ClSl'
-
 BASE_DIR = _find_best_base_dir()
 CONFIG_FILE = BASE_DIR / 'config.yaml'
-
 EMERGENCY_MODE = False
 if BASE_DIR.drive == 'C:':
     try:
@@ -56,9 +51,9 @@ if BASE_DIR.drive == 'C:':
             EMERGENCY_MODE = True
     except Exception:
         pass
-
 def load_config():
     default = {
+        "check_update": False,
         "custom_cache_dirs": [],
         "recycle_bin": {
             "enabled": False
@@ -123,13 +118,10 @@ def load_config():
         try:
             CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                f.write(f"""# 配置文件可按需修改
-
+                f.write(f"""check_update: false  # true启动检查更新，false跳过程序启动时的联网版本检查
 custom_cache_dirs: []  # 自定义缓存目录列表
-
 recycle_bin:
   enabled: false  # false 不走回收站，直接删除（释放空间）
-
 scanner:  #扫描时是否启用这些选项（大文件不大好使就给关了）
   shadow: false          # 系统还原点
   winsxs: false          # WinSxS 组件存储
@@ -148,7 +140,7 @@ scanner:  #扫描时是否启用这些选项（大文件不大好使就给关了
   log_files: true       # 日志文件
   installer_cache: true # 安装包缓存
   pip_cache: true       # pip 缓存
-  npm_cache: true       # npm 缓存
+  npm_cache: true      # npm 缓存
   yarn_cache: true      # yarn 缓存
   maven_repo: true      # Maven 本地仓库
   gradle_cache: true    # Gradle 缓存
@@ -158,13 +150,10 @@ scanner:  #扫描时是否启用这些选项（大文件不大好使就给关了
   error_reports: true   # Windows错误报告
   delivery_opt: true    # 传递优化文件
   recycle_bin: true     # 回收站
-
 backup:
   enabled: true  # true 删除前自动备份，false 不备份（中高风险项强制备份）
   dir: "{(BASE_DIR / 'backup').as_posix()}"  # 备份根目录，不存在会自动创建（优先D盘，没有会尝试找其他盘符，其他盘符也没有就存C盘了）
-
 aggressive_mode_enabled: false  # true 显示激进模式选项，false 只显示安全模式
-
 enable_patch: false  # true 显示补丁加载选项，false 隐藏
 """)
             print(f"[Config] 已生成配置文件: {CONFIG_FILE}")
@@ -175,9 +164,8 @@ enable_patch: false  # true 显示补丁加载选项，false 隐藏
         except Exception:
             pass
         return default
-
 CONFIG = load_config()
-
+CHECK_UPDATE = CONFIG.get("check_update", False)
 CUSTOM_CACHE_DIRS = [Path(p) for p in CONFIG.get("custom_cache_dirs", []) if p]
 RECYCLE_BIN_ENABLED = CONFIG.get("recycle_bin", {}).get("enabled", False)
 BACKUP_ENABLED = CONFIG.get("backup", {}).get("enabled", True)
@@ -186,10 +174,9 @@ AGGRESSIVE_MODE_ENABLED = CONFIG.get("aggressive_mode_enabled", False)
 ENABLE_PATCH = CONFIG.get("enable_patch", False)
 BACKUP_RETENTION_DAYS = CONFIG.get("backup", {}).get("retention_days", 30)
 PATCH_DIR = Path(CONFIG.get("patch_dir", str(BASE_DIR / 'patches')))
-
 _SCANNER = CONFIG.get("scanner", {})
-ENABLE_SHADOW = _SCANNER.get("shadow", True)
-ENABLE_WINSXS = _SCANNER.get("winsxs", True)
+ENABLE_SHADOW = _SCANNER.get("shadow", False)
+ENABLE_WINSXS = _SCANNER.get("winsxs", False)
 ENABLE_TEMP_SYS = _SCANNER.get("temp_sys", True)
 ENABLE_TEMP_USER = _SCANNER.get("temp_user", True)
 ENABLE_PREFETCH = _SCANNER.get("prefetch", True)
@@ -198,7 +185,7 @@ ENABLE_QQ_RESIDUE = _SCANNER.get("qq_residue", True)
 ENABLE_WECHAT_CACHE = _SCANNER.get("wechat_cache", True)
 ENABLE_HIBERNATION = _SCANNER.get("hibernation", True)
 ENABLE_DUPLICATE_FILES = _SCANNER.get("duplicate_files", True)
-ENABLE_LARGE_FILES = _SCANNER.get("large_files", True)
+#ENABLE_LARGE_FILES = _SCANNER.get("large_files", True)
 ENABLE_EMPTY_FOLDERS = _SCANNER.get("empty_folders", True)
 ENABLE_BROWSER_CACHE = _SCANNER.get("browser_cache", True)
 ENABLE_IDE_CACHE = _SCANNER.get("ide_cache", True)
@@ -215,7 +202,6 @@ ENABLE_THUMBNAILS = _SCANNER.get("thumbnails", True)
 ENABLE_ERROR_REPORTS = _SCANNER.get("error_reports", True)
 ENABLE_DELIVERY_OPT = _SCANNER.get("delivery_opt", True)
 ENABLE_RECYCLE_BIN = _SCANNER.get("recycle_bin", True)
-
 PATH_TEMP_SYSTEM = Path(f'{SYSTEM_DRIVE}/Windows/Temp')
 PATH_TEMP_USER = Path(os.environ.get('TEMP', f'{SYSTEM_DRIVE}\\Users\\{CURRENT_USER}\\AppData\\Local\\Temp'))
 PATH_PREFETCH = Path(f'{SYSTEM_DRIVE}/Windows/Prefetch')
@@ -228,7 +214,6 @@ PATH_WECHAT_CANDIDATES = [
     Path(f'{SYSTEM_DRIVE}/WeChat'),
 ]
 PATH_HIBERNATION = Path(f'{SYSTEM_DRIVE}/hiberfil.sys')
-
 PATH_CHROME_CACHE = USER_HOME / 'AppData/Local/Google/Chrome/User Data/Default/Cache'
 PATH_EDGE_CACHE = USER_HOME / 'AppData/Local/Microsoft/Edge/User Data/Default/Cache'
 PATH_FIREFOX_CACHE = USER_HOME / 'AppData/Local/Mozilla/Firefox/Profiles'
@@ -237,7 +222,6 @@ PATH_PYCHARM_CACHE = USER_HOME / 'AppData/Local/JetBrains/PyCharm*/cache'
 PATH_INTELLIJ_CACHE = USER_HOME / 'AppData/Local/JetBrains/IntelliJIdea*/cache'
 PATH_SYSTEM_LOGS = Path(f'{SYSTEM_DRIVE}/Windows/Logs')
 PATH_INSTALLER_CACHE = Path(f'{SYSTEM_DRIVE}/Windows/Installer')
-
 PATH_PIP_CACHE = USER_HOME / 'AppData/Local/pip/cache'
 PATH_NPM_CACHE = USER_HOME / 'AppData/Local/npm-cache'
 PATH_YARN_CACHE = USER_HOME / 'AppData/Local/Yarn/Cache'
@@ -248,7 +232,6 @@ PATH_JDK_INSTALLS = [
     Path(f'{SYSTEM_DRIVE}/Program Files/Java'),
     Path(f'{SYSTEM_DRIVE}/Program Files (x86)/Java'),
 ]
-
 _BASE_SCAN_ITEMS = [
     {'id': 'shadow', 'name': '系统还原点', 'risk': 'medium'},
     {'id': 'winsxs', 'name': 'WinSxS 组件存储', 'risk': 'medium'},
@@ -260,7 +243,7 @@ _BASE_SCAN_ITEMS = [
     {'id': 'wechat_cache', 'name': '微信缓存', 'risk': 'low'},
     {'id': 'hibernation', 'name': '休眠文件', 'risk': 'low'},
     {'id': 'duplicate_files', 'name': '重复文件', 'risk': 'medium'},
-    {'id': 'large_files', 'name': '大文件 (>1GB)', 'risk': 'high'},
+    #{'id': 'large_files', 'name': '大文件 (>1GB)', 'risk': 'high'},
     {'id': 'empty_folders', 'name': '空文件夹', 'risk': 'low'},
     {'id': 'browser_cache', 'name': '浏览器缓存', 'risk': 'low'},
     {'id': 'ide_cache', 'name': 'IDE 缓存', 'risk': 'low'},
@@ -278,7 +261,6 @@ _BASE_SCAN_ITEMS = [
     {'id': 'delivery_opt', 'name': '传递优化文件', 'risk': 'low'},
     {'id': 'recycle_bin', 'name': '回收站', 'risk': 'low'},
 ]
-
 ENABLE_MAP = {
     'shadow': ENABLE_SHADOW,
     'winsxs': ENABLE_WINSXS,
@@ -290,7 +272,7 @@ ENABLE_MAP = {
     'wechat_cache': ENABLE_WECHAT_CACHE,
     'hibernation': ENABLE_HIBERNATION,
     'duplicate_files': ENABLE_DUPLICATE_FILES,
-    'large_files': ENABLE_LARGE_FILES,
+    #'large_files': ENABLE_LARGE_FILES,
     'empty_folders': ENABLE_EMPTY_FOLDERS,
     'browser_cache': ENABLE_BROWSER_CACHE,
     'ide_cache': ENABLE_IDE_CACHE,
@@ -308,15 +290,12 @@ ENABLE_MAP = {
     'delivery_opt': ENABLE_DELIVERY_OPT,
     'recycle_bin': ENABLE_RECYCLE_BIN,
 }
-
 SCAN_ITEMS = []
 for item in _BASE_SCAN_ITEMS:
     if ENABLE_MAP.get(item['id'], True):
         SCAN_ITEMS.append(item)
-
 if ENABLE_RECYCLE_BIN:
     SCAN_ITEMS.append({'id': 'recycle_bin', 'name': '回收站', 'risk': 'low'})
-
 if CUSTOM_CACHE_DIRS:
     for idx, p in enumerate(CUSTOM_CACHE_DIRS):
         if p.exists():

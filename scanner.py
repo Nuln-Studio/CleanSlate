@@ -204,7 +204,7 @@ def scan_duplicate_files() -> Dict:
         "can_clean": size_gb > 0.01,
         "detail": f"重复文件，可释放 {size_gb:.2f} GB（删除后保留第一个文件）"
     }
-
+"""
 def scan_large_files() -> Dict:
     target_dirs = [
         USER_HOME / 'Documents',
@@ -222,7 +222,7 @@ def scan_large_files() -> Dict:
     max_files = 10000
     start_time = time.time()
     timeout = 8
-    print(" 扫描大文件（限制深度）...", end="", flush=True)
+    print(" 扫描大文件...", end="", flush=True)
 
     def scan_dir(path, depth=0, max_depth=2):
         nonlocal count, total_size
@@ -268,7 +268,7 @@ def scan_large_files() -> Dict:
     if time.time() - start_time > timeout:
         detail += " (扫描超时)"
     return {"size_gb": size_gb, "can_clean": size_gb > 0.01, "detail": detail}
-
+"""
 def scan_empty_folders() -> Dict:
     target_dirs = [
         USER_HOME / 'Documents',
@@ -479,7 +479,7 @@ SCAN_MAP = {
     'wechat_cache': scan_wechat_cache,
     'hibernation': scan_hibernation,
     'duplicate_files': scan_duplicate_files,
-    'large_files': scan_large_files,
+    #'large_files': scan_large_files,
     'empty_folders': scan_empty_folders,
     'browser_cache': scan_browser_cache,
     'ide_cache': scan_ide_cache,
