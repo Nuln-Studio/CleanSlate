@@ -282,7 +282,7 @@ def main():
     if CHECK_UPDATE:
         stop = spinner("正在检查更新")
         New_Version()
-        stop()  #spinner正确用法
+        stop()
     print(f"当前客户端版本：{VERSION_NUM}")
     print("当前版本适用于 Windows 10 64 位 及更高版本(不支持32位系统)")
     print("制作团队：零阑工坊 (Nuln Studio)")
@@ -536,6 +536,3 @@ def main():
         else:
             print("无效选项，请重新选择。")
             input("按回车键继续...")
-
-if __name__ == "__main__":
-    main()

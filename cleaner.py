@@ -39,7 +39,7 @@ RISK_MAP = {
     'wechat_cache': 'low',
     'hibernation': 'low',
     'duplicate_files': 'medium',
-    'large_files': 'high',
+    #'large_files': 'high',
     'empty_folders': 'low',
     'browser_cache': 'low',
     'ide_cache': 'low',
@@ -428,7 +428,7 @@ def _get_file_hash_sample(filepath: Path) -> str:
                 return hashlib.md5(f.read()).hexdigest()
     except Exception:
         return ""
-
+"""
 def clean_large_files(item_id: str = None) -> bool:
     global _last_freed_gb
     target_dirs = [
@@ -471,7 +471,7 @@ def clean_large_files(item_id: str = None) -> bool:
     _last_freed_gb = freed_gb
     print(f"删除大文件 {deleted_count} 个，释放 {freed_gb} GB")
     return True
-
+"""
 def clean_empty_folders(item_id: str = None) -> bool:
     global _last_freed_gb
     target_dirs = [
@@ -707,7 +707,7 @@ CLEAN_MAP = {
     'wechat_cache': clean_wechat_cache,
     'hibernation': clean_hibernation,
     'duplicate_files': clean_duplicate_files,
-    'large_files': clean_large_files,
+    #'large_files': clean_large_files,
     'empty_folders': clean_empty_folders,
     'browser_cache': clean_browser_cache,
     'ide_cache': clean_ide_cache,

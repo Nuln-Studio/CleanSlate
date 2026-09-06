@@ -66,8 +66,8 @@ def load_config():
         "enable_patch": False,
         "patch_dir": str(BASE_DIR / 'patches'),
         "scanner": {
-            "shadow": True,
-            "winsxs": True,
+            "shadow": False,
+            "winsxs": False,
             "temp_sys": True,
             "temp_user": True,
             "prefetch": True,
@@ -76,7 +76,7 @@ def load_config():
             "wechat_cache": True,
             "hibernation": True,
             "duplicate_files": True,
-            "large_files": True,
+            #"large_files": True,
             "empty_folders": True,
             "browser_cache": True,
             "ide_cache": True,
@@ -122,7 +122,7 @@ def load_config():
 custom_cache_dirs: []  # 自定义缓存目录列表
 recycle_bin:
   enabled: false  # false 不走回收站，直接删除（释放空间）
-scanner:  #扫描时是否启用这些选项（大文件不大好使就给关了）
+scanner:  #扫描时是否启用这些选项（大文件不可用）
   shadow: false          # 系统还原点
   winsxs: false          # WinSxS 组件存储
   temp_sys: true        # 系统临时文件
@@ -133,7 +133,7 @@ scanner:  #扫描时是否启用这些选项（大文件不大好使就给关了
   wechat_cache: true    # 微信缓存
   hibernation: true     # 休眠文件
   duplicate_files: true # 重复文件
-  large_files: false    # 大文件 (后续出补丁，启用那个补丁选项才能加载补丁然后用)
+  large_files: false    # 大文件 (不可用，改成true也没用)
   empty_folders: true   # 空文件夹
   browser_cache: true   # 浏览器缓存
   ide_cache: true       # IDE 缓存
