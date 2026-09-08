@@ -1,6 +1,6 @@
 {
     "version_code":1004,
     "latest_version":"v1.0.4正式版",
-    "note":"优化配置文件生成＆读取逻辑，程序加入客户端版本显示（虽然可能没有什么用处吧）。不再支持安装包版本，只保留绿色安装渠道",
+    "note":"CleanSlate-v1.0.4-正式版，优化配置文件生成＆读取逻辑，程序加入客户端版本显示（虽然可能没有什么用处吧）。不再支持安装包版本，只保留绿色安装渠道。exe程序目前稳定可执行清理工作，支持补丁系统。目前整个软件目录至多占用25MB，源码82KB,生成的配置文件目前仅有2KB",
     "github_release_url":"https://github.com/Nuln-Studio/CleanSlate/releases"
 }
