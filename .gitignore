@@ -139,7 +139,7 @@ cython_debug/
 
 #Python缓存
 __pycache__/
-
+.idea
 *.cmd
 *.pyc 
 .DS_Store 
