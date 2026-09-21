@@ -6,6 +6,8 @@ import time
 import re
 import ctypes
 from ctypes import wintypes
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict
 from datetime import datetime
@@ -63,6 +65,8 @@ for idx, p in enumerate(CUSTOM_CACHE_DIRS):
         RISK_MAP[f'custom_{idx}'] = 'low'
 
 _last_freed_gb = 0.0
+_log_lock = threading.Lock()
+SERIAL_TASK_IDS = {"winsxs", "shadow", "hibernation"}
 
 def _parse_version(dirname: str) -> tuple:
     nums = re.findall(r'\d+', dirname)
@@ -116,12 +120,13 @@ def _log_clean(action: str, path: str, result: str, backup_path: str = ""):
     log_file = BACKUP_DIR / 'clean.log'
     try:
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(log_file, 'a', encoding='utf-8') as f:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"[{timestamp}] {action} | {path} | {result}")
-            if backup_path:
-                f.write(f" | 备份: {backup_path}")
-            f.write("\n")
+        with _log_lock:
+            with open(log_file, 'a', encoding='utf-8') as f:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"[{timestamp}] {action} | {path} | {result}")
+                if backup_path:
+                    f.write(f" | 备份: {backup_path}")
+                f.write("\n")
     except Exception:
         pass
 
@@ -749,3 +754,43 @@ def run_cleaner(item_id: str) -> Dict[str, bool]:
         return {"success": ok, "message": "完成" if ok else "失败", "freed_gb": freed_gb}
     except Exception as e:
         return {"success": False, "message": f"异常: {str(e)}", "freed_gb": 0.0}
+
+def run_cleaner_batch(task_ids: list[str]) -> Dict[str, Dict]:
+    final_result = {}
+    normal_tasks = []
+    serial_tasks = []
+
+    for tid in task_ids:
+        if tid in SERIAL_TASK_IDS:
+            serial_tasks.append(tid)
+        else:
+            normal_tasks.append(tid)
+
+    def _worker_wrapper(tid: str):
+        global _last_freed_gb
+        func = CLEAN_MAP.get(tid)
+        if not func:
+            return tid, {"success": False, "message": f"未知任务 {tid}", "freed_gb": 0.0}
+        risk = RISK_MAP.get(tid, 'low')
+        if EMERGENCY_MODE and risk == 'high':
+            return tid, {"success": True, "message": "降级模式跳过（高风险）", "freed_gb": 0.0}
+        _last_freed_gb = 0.0
+        try:
+            ok = func(tid)
+            fg = _last_freed_gb
+            return tid, {"success": ok, "message": "完成" if ok else "失败", "freed_gb": fg}
+        except Exception as e:
+            return tid, {"success": False, "message": f"异常: {str(e)}", "freed_gb": 0.0}
+
+    if normal_tasks:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_list = [executor.submit(_worker_wrapper, tid) for tid in normal_tasks]
+            for fut in as_completed(future_list):
+                tid, ret = fut.result()
+                final_result[tid] = ret
+
+    for sid in serial_tasks:
+        _, ret = _worker_wrapper(sid)
+        final_result[sid] = ret
+
+    return final_result

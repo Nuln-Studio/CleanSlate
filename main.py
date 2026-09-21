@@ -6,14 +6,14 @@ import struct
 import threading
 from pathlib import Path
 from scanner import get_all_scans
-from cleaner import run_cleaner, CLEAN_MAP
+from cleaner import run_cleaner, run_cleaner_batch, CLEAN_MAP
 from config import AGGRESSIVE_MODE_ENABLED, ENABLE_PATCH, PATCH_DIR, BACKUP_DIR, BACKUP_RETENTION_DAYS, EMERGENCY_MODE, BASE_DIR, CHECK_UPDATE
 
 class AppState:
     data = {}
 
-VERSION_NUM = "正式版v1.0.4"  #别忘了改这个！！！！！！！！！！！！！！！！！！
-VERSION_CODE = 1004   #别忘了改这个！！！！！！！！！！！！！！！！！！
+VERSION_NUM = "预发布v1.0.5-rc1"  #别忘了改这个！！！！！！！！！！！！！！！！！！
+VERSION_CODE = 1005   #别忘了改这个！！！！！！！！！！！！！！！！！！
 TEMP_PATCH_DIR = BASE_DIR / 'temp_patches'
 PATCH_RETENTION_DAYS = 30
 _patch_scans = []
@@ -381,13 +381,17 @@ def main():
             if confirm != 'y':
                 print("已取消。")
                 continue
+            print("\n[DEBUG]v1.0.5-rc1预发布版本多线程清理运行中，控制台输出顺序会发生混乱，详细准确记录请查看日志文件。")
+            print(f"日志路径: {BACKUP_DIR / 'clean.log'}\n")
+            input("按下回车以继续...")
             print("\n开始清理...")
             success_count = 0
             fail_count = 0
             total_freed = 0.0
             total_items = len(selected_ids)
+            actual_run_ids = []
             for item_idx, item_id in enumerate(selected_ids, 1):
-                print(f"\n[清理项 {item_idx}/{total_items}] 正在处理: {AppState.data.get(item_id, {}).get('name', item_id)}")
+                print(f"\n[检查 {item_idx}/{total_items}] 校验: {AppState.data.get(item_id, {}).get('name', item_id)}")
                 if item_id not in AppState.data:
                     print(f"跳过未知项: {item_id}")
                     continue
@@ -397,7 +401,16 @@ def main():
                     if sec != 'y':
                         print(f"跳过 {item_id}")
                         continue
-                result = run_cleaner(item_id)
+                actual_run_ids.append(item_id)
+
+            batch_result = run_cleaner_batch(actual_run_ids)
+            success_count = 0
+            fail_count = 0
+            total_freed = 0.0
+            for item_idx, item_id in enumerate(actual_run_ids, 1):
+                print(
+                    f"\n[清理项 {item_idx}/{len(actual_run_ids)}] 结果: {AppState.data.get(item_id, {}).get('name', item_id)}")
+                result = batch_result[item_id]
                 if result['success']:
                     print(f"  [成功] {item_id} - {result['message']}")
                     success_count += 1
@@ -448,6 +461,9 @@ def main():
             if confirm != 'y':
                 print("取消。")
                 continue
+            print("\n[DEBUG]v1.0.5-rc1预发布版本多线程清理运行中，控制台输出顺序会发生混乱，详细准确记录请查看日志文件。")
+            print(f"日志路径: {BACKUP_DIR / 'clean.log'}\n")
+            input("按下回车以继续...")
             print("开始清理...")
             print("清理时间较长，请耐心等待，不要关闭这个窗口")
             print("清理时预期可能与结果不符（例如日志文件只删除）")
@@ -455,15 +471,24 @@ def main():
             fail_count = 0
             total_freed = 0.0
             total_items = len(selected_ids)
+            actual_run_ids = []
             for item_idx, item_id in enumerate(selected_ids, 1):
-                print(f"\n[清理项 {item_idx}/{total_items}] 正在处理: {AppState.data.get(item_id, {}).get('name', item_id)}")
+                print(f"\n[检查 {item_idx}/{total_items}] 校验: {AppState.data.get(item_id, {}).get('name', item_id)}")
                 risk = AppState.data[item_id].get('risk', 'low')
                 if risk == 'high':
                     sec = input(f"项 '{item_id}' 风险为高，仍继续？(y/N): ").strip().lower()
                     if sec != 'y':
                         print(f"跳过 {item_id}")
                         continue
-                result = run_cleaner(item_id)
+                actual_run_ids.append(item_id)
+            batch_result = run_cleaner_batch(actual_run_ids)
+            success_count = 0
+            fail_count = 0
+            total_freed = 0.0
+            for item_idx, item_id in enumerate(actual_run_ids, 1):
+                print(
+                    f"\n[清理项 {item_idx}/{len(actual_run_ids)}] 结果: {AppState.data.get(item_id, {}).get('name', item_id)}")
+                result = batch_result[item_id]
                 if result['success']:
                     print(f"  [成功] {item_id} - {result['message']}")
                     success_count += 1
