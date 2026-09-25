@@ -3,10 +3,11 @@ import shutil
 import importlib.util
 import time
 import struct
+import queue
 import threading
 from pathlib import Path
 from scanner import get_all_scans
-from cleaner import run_cleaner, run_cleaner_batch, CLEAN_MAP
+from cleaner import run_cleaner, run_cleaner_batch, run_cleaner_batch_async, set_task_event_queue, CLEAN_MAP, SERIAL_TASK_IDS
 from config import AGGRESSIVE_MODE_ENABLED, ENABLE_PATCH, PATCH_DIR, BACKUP_DIR, BACKUP_RETENTION_DAYS, EMERGENCY_MODE, BASE_DIR, CHECK_UPDATE
 
 class AppState:
@@ -276,6 +277,69 @@ def New_Version():
     else:
         print("\n未发现新版本")
 
+def do_clean_work(selected_ids, app_state_data):
+    # 清理全用这个
+    normal_ids = []
+    serial_ids = []
+    for tid in selected_ids:
+        if tid in SERIAL_TASK_IDS:
+            serial_ids.append(tid)
+        else:
+            normal_ids.append(tid)
+
+    q = queue.Queue()
+    set_task_event_queue(q)
+
+    run_cleaner_batch_async(normal_ids)
+
+    success_count = 0
+    fail_count = 0
+    total_freed = 0.0
+    result_map = {}
+
+    print("\n开始执行普通清理任务")
+    while True:
+        event = q.get()
+        etype = event["type"]
+        tid = event["tid"]
+        data = event["data"]
+
+        if etype == "start":
+            name = app_state_data.get(tid, {}).get("name", tid)
+            print(f"开始：{name}")
+
+        elif etype == "finish":
+            res = data
+            result_map[tid] = res
+            name = app_state_data.get(tid, {}).get("name", tid)
+            if res["success"]:
+                print(f"完成：{name} | 释放 {res['freed_gb']:.2f} GB")
+                success_count += 1
+                total_freed += res["freed_gb"]
+            else:
+                print(f"失败：{name} | {res['message']}")
+                fail_count += 1
+
+        elif etype == "all_done":
+            break
+
+    print("\n普通任务全部完成，执行需要确认的交互任务")
+    for sid in serial_ids:
+        info = app_state_data.get(sid, {})
+        name = info.get("name", sid)
+        print(f"\n[交互任务] {name}")
+        ret = run_cleaner(sid)
+        result_map[sid] = ret
+        if ret["success"]:
+            print(f"完成：{name} | 释放 {ret['freed_gb']:.2f} GB")
+            success_count += 1
+            total_freed += ret["freed_gb"]
+        else:
+            print(f"失败：{name} | {ret['message']}")
+            fail_count += 1
+
+    return success_count, fail_count, total_freed
+
 def main():
     clean_backup_files()
     clean_temp_patches()
@@ -283,6 +347,7 @@ def main():
         stop = spinner("正在检查更新")
         New_Version()
         stop()
+
     print(f"当前客户端版本：{VERSION_NUM}")
     print("当前版本适用于 Windows 10 64 位 及更高版本(不支持32位系统)")
     print("制作团队：零阑工坊 (Nuln Studio)")
@@ -297,11 +362,9 @@ def main():
     progerss_str, progerss = progress_disk(total_gb, used_gb)
     print(f"C: 总 {total_gb:.2f} GB, 已用 {used_gb:.2f} GB, 剩余 {free_gb:.2f} GB")
     print(progerss_str, progerss)
-
     stop_spin2 = spinner("正在扫描磁盘，请稍候")
     AppState.data = get_all_scans()
     stop_spin2()
-
     if ENABLE_PATCH:
         load_patches_from_dir()
     for func in _patch_scans:
@@ -381,13 +444,7 @@ def main():
             if confirm != 'y':
                 print("已取消。")
                 continue
-            print("\n[DEBUG]v1.0.5-rc1预发布版本多线程清理运行中，控制台输出顺序会发生混乱，详细准确记录请查看日志文件。")
-            print(f"日志路径: {BACKUP_DIR / 'clean.log'}\n")
-            input("按下回车以继续...")
             print("\n开始清理...")
-            success_count = 0
-            fail_count = 0
-            total_freed = 0.0
             total_items = len(selected_ids)
             actual_run_ids = []
             for item_idx, item_id in enumerate(selected_ids, 1):
@@ -403,22 +460,9 @@ def main():
                         continue
                 actual_run_ids.append(item_id)
 
-            batch_result = run_cleaner_batch(actual_run_ids)
-            success_count = 0
-            fail_count = 0
-            total_freed = 0.0
-            for item_idx, item_id in enumerate(actual_run_ids, 1):
-                print(
-                    f"\n[清理项 {item_idx}/{len(actual_run_ids)}] 结果: {AppState.data.get(item_id, {}).get('name', item_id)}")
-                result = batch_result[item_id]
-                if result['success']:
-                    print(f"  [成功] {item_id} - {result['message']}")
-                    success_count += 1
-                    total_freed += result.get('freed_gb', 0.0)
-                else:
-                    print(f"  [失败] {item_id} - {result['message']}")
-                    fail_count += 1
+            success_count, fail_count, total_freed = do_clean_work(actual_run_ids, AppState.data)
             show_clean_result(success_count, fail_count, total_freed)
+
             input("按回车键继续...")
             print("重新扫描...")
             AppState.data = get_all_scans()
@@ -461,15 +505,8 @@ def main():
             if confirm != 'y':
                 print("取消。")
                 continue
-            print("\n[DEBUG]v1.0.5-rc1预发布版本多线程清理运行中，控制台输出顺序会发生混乱，详细准确记录请查看日志文件。")
-            print(f"日志路径: {BACKUP_DIR / 'clean.log'}\n")
-            input("按下回车以继续...")
             print("开始清理...")
             print("清理时间较长，请耐心等待，不要关闭这个窗口")
-            print("清理时预期可能与结果不符（例如日志文件只删除）")
-            success_count = 0
-            fail_count = 0
-            total_freed = 0.0
             total_items = len(selected_ids)
             actual_run_ids = []
             for item_idx, item_id in enumerate(selected_ids, 1):
@@ -481,22 +518,10 @@ def main():
                         print(f"跳过 {item_id}")
                         continue
                 actual_run_ids.append(item_id)
-            batch_result = run_cleaner_batch(actual_run_ids)
-            success_count = 0
-            fail_count = 0
-            total_freed = 0.0
-            for item_idx, item_id in enumerate(actual_run_ids, 1):
-                print(
-                    f"\n[清理项 {item_idx}/{len(actual_run_ids)}] 结果: {AppState.data.get(item_id, {}).get('name', item_id)}")
-                result = batch_result[item_id]
-                if result['success']:
-                    print(f"  [成功] {item_id} - {result['message']}")
-                    success_count += 1
-                    total_freed += result.get('freed_gb', 0.0)
-                else:
-                    print(f"  [失败] {item_id} - {result['message']}")
-                    fail_count += 1
+
+            success_count, fail_count, total_freed = do_clean_work(actual_run_ids, AppState.data)
             show_clean_result(success_count, fail_count, total_freed)
+
             input("按回车键继续...")
             print("重新扫描...")
             AppState.data = get_all_scans()

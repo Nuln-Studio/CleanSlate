@@ -7,9 +7,10 @@ import re
 import ctypes
 from ctypes import wintypes
 import threading
+import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 from datetime import datetime
 
 from config import (
@@ -29,7 +30,6 @@ from config import (
     SYSTEM_DRIVE,
     EMERGENCY_MODE
 )
-
 RISK_MAP = {
     'shadow': 'medium',
     'winsxs': 'high',
@@ -64,9 +64,25 @@ for idx, p in enumerate(CUSTOM_CACHE_DIRS):
     if p.exists():
         RISK_MAP[f'custom_{idx}'] = 'low'
 
-_last_freed_gb = 0.0
+
 _log_lock = threading.Lock()
 SERIAL_TASK_IDS = {"winsxs", "shadow", "hibernation"}
+INNER_DELETE_WORKERS = 2
+_inner_stat_lock = threading.Lock()
+_task_event_queue: Optional[queue.Queue] = None
+thread_local = threading.local()
+
+def set_task_event_queue(q: queue.Queue):
+    global _task_event_queue
+    _task_event_queue = q
+
+def _emit_event(event_type: str, tid: str, payload: dict):
+    if _task_event_queue is not None:
+        _task_event_queue.put({
+            "type": event_type,
+            "tid": tid,
+            "data": payload
+        })
 
 def _parse_version(dirname: str) -> tuple:
     nums = re.findall(r'\d+', dirname)
@@ -96,7 +112,6 @@ def _backup_to_zip(file_paths, zip_path) -> bool:
             total_size += _get_folder_total_size(p)
     if total_size > 8 * 1024 ** 3:
         _log_clean("BACKUP_SKIP", str(zip_path), f"跳过备份 (大小 {_get_size_gb(total_size):.2f} GB 超过8GB)")
-        print(f"警告: 备份大小 {_get_size_gb(total_size):.2f} GB 超过8GB，跳过备份")
         return False
     try:
         import zipfile
@@ -155,7 +170,6 @@ def _send_to_recycle_bin(path: Path) -> bool:
             return False
 
 def _delete_folder(path: Path, item_id: str = None) -> bool:
-    global _last_freed_gb
     if not path.exists():
         return True
     risk = RISK_MAP.get(item_id, 'low')
@@ -168,31 +182,36 @@ def _delete_folder(path: Path, item_id: str = None) -> bool:
             backup_path = str(zip_path)
     try:
         if RECYCLE_BIN_ENABLED:
-            print(f"  正在移至回收站，请耐心等待...")
             all_files = list(path.rglob('*'))
             file_list = [f for f in all_files if f.is_file()]
             total = len(file_list)
             success_count = 0
             freed_size = 0
-            for f in file_list:
-                try:
-                    size = f.stat().st_size
-                    if _send_to_recycle_bin(f):
-                        success_count += 1
-                        freed_size += size
-                except Exception:
-                    pass
-            print()
+            if file_list:
+                with ThreadPoolExecutor(max_workers=INNER_DELETE_WORKERS) as executor:
+                    future_map = {
+                        executor.submit(_delete_single_file, f, True): f
+                        for f in file_list
+                    }
+                    for future in as_completed(future_map):
+                        f = future_map[future]
+                        try:
+                            if future.result():
+                                size = f.stat().st_size
+                                with _inner_stat_lock:
+                                    success_count += 1
+                                    freed_size += size
+                        except Exception:
+                            pass
             if path.exists():
                 shutil.rmtree(path, ignore_errors=True)
                 path.mkdir(parents=True, exist_ok=True)
             _log_clean("DELETE_FOLDER", str(path), f"成功（回收站）{success_count}/{total}", backup_path)
             freed_gb = _get_size_gb(freed_size)
-            _last_freed_gb = freed_gb
-            print(f"  回收站操作完成：成功移动 {success_count} 个文件，释放 {freed_gb} GB")
+            if hasattr(thread_local, "freed_gb"):
+                thread_local.freed_gb = freed_gb
             return True
         else:
-            print(f"  正在删除文件，请耐心等待（不要退出窗口）...")
             all_files = list(path.rglob('*'))
             file_list = [f for f in all_files if f.is_file()]
             total = len(file_list)
@@ -200,20 +219,27 @@ def _delete_folder(path: Path, item_id: str = None) -> bool:
                 shutil.rmtree(path, ignore_errors=True)
                 path.mkdir(parents=True, exist_ok=True)
                 _log_clean("DELETE_FOLDER", str(path), "成功 (无文件)", backup_path)
-                _last_freed_gb = 0.0
-                print("  清理完成：无文件可删除")
+                if hasattr(thread_local, "freed_gb"):
+                    thread_local.freed_gb = 0.0
                 return True
             deleted = 0
             freed_size = 0
-            for f in file_list:
-                try:
-                    size = f.stat().st_size
-                    f.unlink()
-                    deleted += 1
-                    freed_size += size
-                except Exception:
-                    pass
-            print()
+            if file_list:
+                with ThreadPoolExecutor(max_workers=INNER_DELETE_WORKERS) as executor:
+                    future_map = {
+                        executor.submit(_delete_single_file, f, False): f
+                        for f in file_list
+                    }
+                    for future in as_completed(future_map):
+                        f = future_map[future]
+                        try:
+                            if future.result():
+                                size = f.stat().st_size
+                                with _inner_stat_lock:
+                                    deleted += 1
+                                    freed_size += size
+                        except Exception:
+                            pass
             try:
                 shutil.rmtree(path, ignore_errors=True)
             except Exception:
@@ -224,15 +250,14 @@ def _delete_folder(path: Path, item_id: str = None) -> bool:
                 pass
             _log_clean("DELETE_FOLDER", str(path), f"成功 (删除了 {deleted} 个文件)", backup_path)
             freed_gb = _get_size_gb(freed_size)
-            _last_freed_gb = freed_gb
-            print(f"  清理完成：删除了 {deleted} 个文件，释放了 {freed_gb} GB")
+            if hasattr(thread_local, "freed_gb"):
+                thread_local.freed_gb = freed_gb
             return True
     except Exception as e:
         _log_clean("DELETE_FOLDER", str(path), f"失败: {str(e)}", backup_path)
         return False
 
 def _delete_files(path: Path, item_id: str = None) -> bool:
-    global _last_freed_gb
     if not path.exists():
         return True
     risk = RISK_MAP.get(item_id, 'low')
@@ -248,45 +273,57 @@ def _delete_files(path: Path, item_id: str = None) -> bool:
         file_list = [f for f in path.glob('*') if f.is_file()]
         total = len(file_list)
         if RECYCLE_BIN_ENABLED:
-            print(f"  正在移至回收站，请耐心等待...")
             success_count = 0
             freed_size = 0
-            for f in file_list:
-                try:
-                    size = f.stat().st_size
-                    if _send_to_recycle_bin(f):
-                        success_count += 1
-                        freed_size += size
-                except Exception:
-                    pass
-            print()
+            if file_list:
+                with ThreadPoolExecutor(max_workers=INNER_DELETE_WORKERS) as executor:
+                    future_map = {
+                        executor.submit(_delete_single_file, f, True): f
+                        for f in file_list
+                    }
+                    for future in as_completed(future_map):
+                        f = future_map[future]
+                        try:
+                            if future.result():
+                                size = f.stat().st_size
+                                with _inner_stat_lock:
+                                    success_count += 1
+                                    freed_size += size
+                        except Exception:
+                            pass
             _log_clean("DELETE_FILES", str(path), f"成功（回收站）{success_count}/{total}", backup_path)
             freed_gb = _get_size_gb(freed_size)
-            _last_freed_gb = freed_gb
-            print(f"  回收站操作完成：成功移动 {success_count} 个文件，释放 {freed_gb} GB")
+            if hasattr(thread_local, "freed_gb"):
+                thread_local.freed_gb = freed_gb
             return True
         else:
             if total == 0:
                 _log_clean("DELETE_FILES", str(path), "成功 (无文件)", backup_path)
-                _last_freed_gb = 0.0
-                print("  清理完成：无文件可删除")
+                if hasattr(thread_local, "freed_gb"):
+                    thread_local.freed_gb = 0.0
                 return True
-            print(f"  正在删除文件，请耐心等待...")
             deleted = 0
             freed_size = 0
-            for f in file_list:
-                try:
-                    size = f.stat().st_size
-                    f.unlink()
-                    deleted += 1
-                    freed_size += size
-                except Exception:
-                    pass
-            print()
+            if file_list:
+                with ThreadPoolExecutor(max_workers=INNER_DELETE_WORKERS) as executor:
+                    future_map = {
+                        executor.submit(_delete_single_file, f, False): f
+                        for f in file_list
+                    }
+                    for future in as_completed(future_map):
+                        f = future_map[future]
+                        try:
+                            if future.result():
+                                size = f.stat().st_size
+                                with _inner_stat_lock:
+                                    deleted += 1
+                                    freed_size += size
+                        except Exception:
+                            pass
             _log_clean("DELETE_FILES", str(path), f"成功 (删除了 {deleted} 个文件)", backup_path)
             freed_gb = _get_size_gb(freed_size)
-            _last_freed_gb = freed_gb
-            print(f"  清理完成：删除了 {deleted} 个文件，释放了 {freed_gb} GB")
+            if hasattr(thread_local, "freed_gb"):
+                thread_local.freed_gb = freed_gb
             return True
     except Exception as e:
         _log_clean("DELETE_FILES", str(path), f"失败: {str(e)}", backup_path)
@@ -299,14 +336,13 @@ def _run_cmd(cmd: str) -> bool:
         return False
 
 def clean_shadow_storage(item_id: str = None) -> bool:
-    global _last_freed_gb
     result = _run_cmd("vssadmin delete shadows /all /quiet")
     _log_clean("SHADOW", "系统还原点", "成功" if result else "失败")
-    _last_freed_gb = 0.0
+    if hasattr(thread_local, "freed_gb"):
+        thread_local.freed_gb = 0.0
     return result
 
 def clean_winsxs(item_id: str = None) -> bool:
-    global _last_freed_gb
     print("\n" + "=" * 70)
     print("警告：此操作将永久删除系统更新备份")
     print("执行后，已安装的 Windows 更新将无法卸载回滚")
@@ -317,7 +353,8 @@ def clean_winsxs(item_id: str = None) -> bool:
     if confirm != 'yes':
         print("已取消 WinSxS 清理")
         _log_clean("WINSXS", "WinSxS 组件存储", "已取消")
-        _last_freed_gb = 0.0
+        if hasattr(thread_local, "freed_gb"):
+            thread_local.freed_gb = 0.0
         return False
     result = _run_cmd("Dism /Online /Cleanup-Image /StartComponentCleanup /ResetBase")
     _log_clean("WINSXS", "WinSxS 组件存储", "成功" if result else "失败")
@@ -327,13 +364,15 @@ def clean_winsxs(item_id: str = None) -> bool:
         except Exception:
             out = ""
         m = re.search(r"组件存储的实际大小\s*:\s*([\d.]+)\s*MB", out)
-        if m:
+        if m and hasattr(thread_local, "freed_gb"):
             freed_mb = float(m.group(1))
-            _last_freed_gb = round(freed_mb / 1024, 2)
+            thread_local.freed_gb = round(freed_mb / 1024, 2)
         else:
-            _last_freed_gb = 0.0
+            if hasattr(thread_local, "freed_gb"):
+                thread_local.freed_gb = 0.0
     else:
-        _last_freed_gb = 0.0
+        if hasattr(thread_local, "freed_gb"):
+            thread_local.freed_gb = 0.0
     return result
 
 def clean_temp_system(item_id: str = None) -> bool:
@@ -352,29 +391,27 @@ def clean_qq_residue(item_id: str = None) -> bool:
     return _delete_folder(PATH_QQ, item_id)
 
 def clean_wechat_cache(item_id: str = None) -> bool:
-    global _last_freed_gb
-    print("微信缓存建议在微信客户端中手动清理 (设置 -> 文件管理 -> 清理缓存)")
     _log_clean("WECHAT", "微信缓存", "跳过，建议手动清理")
-    _last_freed_gb = 0.0
+    if hasattr(thread_local, "freed_gb"):
+        thread_local.freed_gb = 0.0
     return False
 
 def clean_hibernation(item_id: str = None) -> bool:
-    global _last_freed_gb
     print("\n关闭休眠将释放磁盘空间，但系统将无法使用休眠功能")
     confirm = input("确认关闭休眠？(y/N): ").strip().lower()
     if confirm != 'y':
         print("已取消关闭休眠")
         _log_clean("HIBERNATION", "休眠文件", "已取消")
-        _last_freed_gb = 0.0
+        if hasattr(thread_local, "freed_gb"):
+            thread_local.freed_gb = 0.0
         return False
     result = _run_cmd("powercfg -h off")
     _log_clean("HIBERNATION", "休眠文件", "成功" if result else "失败")
-    _last_freed_gb = 0.0
+    if hasattr(thread_local, "freed_gb"):
+        thread_local.freed_gb = 0.0
     return result
 
 def clean_duplicate_files(item_id: str = None) -> bool:
-    global _last_freed_gb
-    print("重复文件清理：将删除重复文件，保留第一个")
     target_dirs = [
         USER_HOME / 'Documents',
         USER_HOME / 'Downloads',
@@ -416,8 +453,8 @@ def clean_duplicate_files(item_id: str = None) -> bool:
                 hashes[file_hash] = f
     _log_clean("DUPLICATE_FILES", f"重复文件", f"删除 {deleted_count} 个")
     freed_gb = _get_size_gb(freed_size)
-    _last_freed_gb = freed_gb
-    print(f"删除重复文件 {deleted_count} 个，释放 {freed_gb} GB")
+    if hasattr(thread_local, "freed_gb"):
+        thread_local.freed_gb = freed_gb
     return True
 
 def _get_file_hash_sample(filepath: Path) -> str:
@@ -433,6 +470,7 @@ def _get_file_hash_sample(filepath: Path) -> str:
                 return hashlib.md5(f.read()).hexdigest()
     except Exception:
         return ""
+
 """
 def clean_large_files(item_id: str = None) -> bool:
     global _last_freed_gb
@@ -453,7 +491,7 @@ def clean_large_files(item_id: str = None) -> bool:
                 except (OSError, PermissionError):
                     pass
     if not large_files:
-        print("没有大文件可清理")
+        print("没有大文件可删除")
         _last_freed_gb = 0.0
         return True
     deleted_count = 0
@@ -477,8 +515,8 @@ def clean_large_files(item_id: str = None) -> bool:
     print(f"删除大文件 {deleted_count} 个，释放 {freed_gb} GB")
     return True
 """
+
 def clean_empty_folders(item_id: str = None) -> bool:
-    global _last_freed_gb
     target_dirs = [
         USER_HOME / 'Documents',
         USER_HOME / 'Downloads',
@@ -505,8 +543,8 @@ def clean_empty_folders(item_id: str = None) -> bool:
             break
         total_deleted += deleted_this_round
     _log_clean("EMPTY_FOLDERS", f"空文件夹", f"删除 {total_deleted} 个")
-    _last_freed_gb = 0.0
-    print(f"删除空文件夹 {total_deleted} 个")
+    if hasattr(thread_local, "freed_gb"):
+        thread_local.freed_gb = 0.0
     return True
 
 def clean_browser_cache(item_id: str = None) -> bool:
@@ -536,14 +574,15 @@ def clean_ide_cache(item_id: str = None) -> bool:
             dirs.append(cache_dir)
     ok = True
     for p in dirs:
-        ok &= _delete_folder(p, item_id)
+        if p.exists():
+            ok &= _delete_folder(p, item_id)
     return ok
 
 def clean_log_files(item_id: str = None) -> bool:
-    global _last_freed_gb
     p = PATH_SYSTEM_LOGS
     if not p.exists():
-        _last_freed_gb = 0.0
+        if hasattr(thread_local, "freed_gb"):
+            thread_local.freed_gb = 0.0
         return True
     now = time.time()
     cutoff = now - 30 * 24 * 3600
@@ -563,8 +602,8 @@ def clean_log_files(item_id: str = None) -> bool:
                     pass
     _log_clean("LOG_FILES", f"日志文件", f"删除 {deleted} 个")
     freed_gb = _get_size_gb(freed_size)
-    _last_freed_gb = freed_gb
-    print(f"删除日志文件 {deleted} 个，释放 {freed_gb} GB")
+    if hasattr(thread_local, "freed_gb"):
+        thread_local.freed_gb = freed_gb
     return True
 
 def clean_installer_cache(item_id: str = None) -> bool:
@@ -629,11 +668,9 @@ def clean_jdk_versions(item_id: str = None) -> bool:
         except Exception:
             pass
     _log_clean("JDK", f"删除 {deleted} 个旧版本，保留 {latest.name}", "完成")
-    print(f"删除 {deleted} 个旧版本 JDK，保留 {latest.name}")
     return True
 
 def clean_thumbnails(item_id: str = None) -> bool:
-    global _last_freed_gb
     p = USER_HOME / 'AppData/Local/Microsoft/Windows/Explorer'
     deleted = 0
     freed_size = 0
@@ -648,12 +685,11 @@ def clean_thumbnails(item_id: str = None) -> bool:
                 pass
     _log_clean("THUMBNAILS", str(p), f"删除 {deleted} 个缩略图缓存文件")
     freed_gb = _get_size_gb(freed_size)
-    _last_freed_gb = freed_gb
-    print(f"删除缩略图缓存 {deleted} 个，释放 {freed_gb} GB")
+    if hasattr(thread_local, "freed_gb"):
+        thread_local.freed_gb = freed_gb
     return True
 
 def clean_error_reports(item_id: str = None) -> bool:
-    global _last_freed_gb
     paths = [
         USER_HOME / 'AppData/Local/Microsoft/Windows/WER',
         Path(f'{SYSTEM_DRIVE}/ProgramData/Microsoft/Windows/WER'),
@@ -668,37 +704,34 @@ def clean_error_reports(item_id: str = None) -> bool:
             except Exception as e:
                 _log_clean("ERROR_REPORTS", str(p), f"失败: {e}")
                 ok = False
-    _last_freed_gb = 0.0
-    print("清理 Windows 错误报告完成")
+    if hasattr(thread_local, "freed_gb"):
+        thread_local.freed_gb = 0.0
     return ok
 
 def clean_delivery_opt(item_id: str = None) -> bool:
-    global _last_freed_gb
     p = Path(f'{SYSTEM_DRIVE}/Windows/SoftwareDistribution/DeliveryOptimization')
     if not p.exists():
-        _last_freed_gb = 0.0
+        if hasattr(thread_local, "freed_gb"):
+            thread_local.freed_gb = 0.0
         return True
     try:
         shutil.rmtree(p, ignore_errors=True)
         p.mkdir(parents=True, exist_ok=True)
         _log_clean("DELIVERY_OPT", str(p), "成功")
-        _last_freed_gb = 0.0
-        print("清理传递优化文件完成")
+        if hasattr(thread_local, "freed_gb"):
+            thread_local.freed_gb = 0.0
         return True
     except Exception as e:
         _log_clean("DELIVERY_OPT", str(p), f"失败: {e}")
-        _last_freed_gb = 0.0
+        if hasattr(thread_local, "freed_gb"):
+            thread_local.freed_gb = 0.0
         return False
 
 def clean_recycle_bin(item_id: str = None) -> bool:
-    global _last_freed_gb
     result = _run_cmd("powershell -Command \"Clear-RecycleBin -Force\"")
     _log_clean("RECYCLE_BIN", "回收站", "成功" if result else "失败")
-    if result:
-        print("回收站已清空")
-    else:
-        print("回收站清空失败，但可能已部分清理")
-    _last_freed_gb = 0.0
+    if hasattr(thread_local, "freed_gb"):
+        thread_local.freed_gb = 0.0
     return True
 
 CLEAN_MAP = {
@@ -730,7 +763,6 @@ CLEAN_MAP = {
     'delivery_opt': clean_delivery_opt,
     'recycle_bin': clean_recycle_bin
 }
-
 for idx, p in enumerate(CUSTOM_CACHE_DIRS):
     if p.exists():
         def make_custom_cleaner(dir_path):
@@ -738,19 +770,16 @@ for idx, p in enumerate(CUSTOM_CACHE_DIRS):
         CLEAN_MAP[f'custom_{idx}'] = make_custom_cleaner(p)
 
 def run_cleaner(item_id: str) -> Dict[str, bool]:
-    global _last_freed_gb
     func = CLEAN_MAP.get(item_id)
     if not func:
         return {"success": False, "message": f"未知任务 {item_id}", "freed_gb": 0.0}
-
     risk = RISK_MAP.get(item_id, 'low')
     if EMERGENCY_MODE and risk == 'high':
         return {"success": True, "message": "降级模式跳过（高风险）", "freed_gb": 0.0}
-
-    _last_freed_gb = 0.0
+    thread_local.freed_gb = 0.0
     try:
         ok = func(item_id)
-        freed_gb = _last_freed_gb
+        freed_gb = getattr(thread_local, "freed_gb", 0.0)
         return {"success": ok, "message": "完成" if ok else "失败", "freed_gb": freed_gb}
     except Exception as e:
         return {"success": False, "message": f"异常: {str(e)}", "freed_gb": 0.0}
@@ -759,38 +788,65 @@ def run_cleaner_batch(task_ids: list[str]) -> Dict[str, Dict]:
     final_result = {}
     normal_tasks = []
     serial_tasks = []
-
     for tid in task_ids:
         if tid in SERIAL_TASK_IDS:
             serial_tasks.append(tid)
         else:
             normal_tasks.append(tid)
-
-    def _worker_wrapper(tid: str):
-        global _last_freed_gb
-        func = CLEAN_MAP.get(tid)
-        if not func:
-            return tid, {"success": False, "message": f"未知任务 {tid}", "freed_gb": 0.0}
-        risk = RISK_MAP.get(tid, 'low')
-        if EMERGENCY_MODE and risk == 'high':
-            return tid, {"success": True, "message": "降级模式跳过（高风险）", "freed_gb": 0.0}
-        _last_freed_gb = 0.0
-        try:
-            ok = func(tid)
-            fg = _last_freed_gb
-            return tid, {"success": ok, "message": "完成" if ok else "失败", "freed_gb": fg}
-        except Exception as e:
-            return tid, {"success": False, "message": f"异常: {str(e)}", "freed_gb": 0.0}
-
     if normal_tasks:
         with ThreadPoolExecutor(max_workers=5) as executor:
             future_list = [executor.submit(_worker_wrapper, tid) for tid in normal_tasks]
             for fut in as_completed(future_list):
                 tid, ret = fut.result()
                 final_result[tid] = ret
-
     for sid in serial_tasks:
         _, ret = _worker_wrapper(sid)
         final_result[sid] = ret
-
     return final_result
+
+def _worker_wrapper(tid: str):
+    func = CLEAN_MAP.get(tid)
+    if not func:
+        return tid, {"success": False, "message": f"未知任务 {tid}", "freed_gb": 0.0}
+    risk = RISK_MAP.get(tid, 'low')
+    if EMERGENCY_MODE and risk == 'high':
+        return tid, {"success": True, "message": "降级模式跳过（高风险）", "freed_gb": 0.0}
+    _emit_event("start", tid, {})
+    thread_local.freed_gb = 0.0
+    try:
+        ok = func(tid)
+        freed_gb = getattr(thread_local, "freed_gb", 0.0)
+        res = {"success": ok, "message": "完成" if ok else "失败", "freed_gb": freed_gb}
+        _emit_event("finish", tid, res)
+        return tid, res
+    except Exception as e:
+        res = {"success": False, "message": f"异常: {str(e)}", "freed_gb": 0.0}
+        _emit_event("finish", tid, res)
+        return tid, res
+
+def run_cleaner_batch_async(task_ids: list[str]) -> None:
+    import threading
+    def bg_run():
+        final_result = {}
+        normal_tasks = task_ids
+        def _worker_wrapper_local(tid):
+            return _worker_wrapper(tid)
+        if normal_tasks:
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                future_list = [executor.submit(_worker_wrapper_local, tid) for tid in normal_tasks]
+                for fut in as_completed(future_list):
+                    tid, ret = fut.result()
+                    final_result[tid] = ret
+        _emit_event("all_done", "", {"final_result": final_result})
+    bg_thread = threading.Thread(target=bg_run, daemon=True)
+    bg_thread.start()
+
+def _delete_single_file(f: Path, use_recycle_bin: bool):
+    try:
+        if use_recycle_bin:
+            return _send_to_recycle_bin(f)
+        else:
+            f.unlink()
+            return True
+    except Exception:
+        return False
