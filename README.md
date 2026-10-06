@@ -10,6 +10,9 @@
 2. **唯一官方下载渠道为 GitHub Releases，其他站点分发的程序不做安全保障，请务必谨慎使用!**
 3. 项目不支持Linux或MacOS等系统，同时**不兼容Windows 32位**，完美兼容Win10 64位及以上系统
 
+**`另提一句:开发者自己也在用哦~❤️
+
+（要是它敢把我们的C盘清废了，第一个提刀去仓库提Issue的就是我们自己哇，所以请放心用吧）`**
 ## 安装与运行
 1. 下载 `CleanSlate_noSetup_v1.0.4.zip`，源代码下载`source code(zip)`或`source code(tar.gz)`
 2. 解压后直接运行`clsl.exe`文件即可运行。
