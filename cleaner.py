@@ -196,8 +196,8 @@ def _delete_folder(path: Path, item_id: str = None) -> bool:
                     for future in as_completed(future_map):
                         f = future_map[future]
                         try:
-                            if future.result():
-                                size = f.stat().st_size
+                            size = future.result()
+                            if size > 0:
                                 with _inner_stat_lock:
                                     success_count += 1
                                     freed_size += size
@@ -233,8 +233,8 @@ def _delete_folder(path: Path, item_id: str = None) -> bool:
                     for future in as_completed(future_map):
                         f = future_map[future]
                         try:
-                            if future.result():
-                                size = f.stat().st_size
+                            size = future.result()
+                            if size > 0:
                                 with _inner_stat_lock:
                                     deleted += 1
                                     freed_size += size
@@ -284,8 +284,8 @@ def _delete_files(path: Path, item_id: str = None) -> bool:
                     for future in as_completed(future_map):
                         f = future_map[future]
                         try:
-                            if future.result():
-                                size = f.stat().st_size
+                            size = future.result()
+                            if size > 0:
                                 with _inner_stat_lock:
                                     success_count += 1
                                     freed_size += size
@@ -313,8 +313,8 @@ def _delete_files(path: Path, item_id: str = None) -> bool:
                     for future in as_completed(future_map):
                         f = future_map[future]
                         try:
-                            if future.result():
-                                size = f.stat().st_size
+                            size = future.result()
+                            if size > 0:
                                 with _inner_stat_lock:
                                     deleted += 1
                                     freed_size += size
@@ -843,10 +843,13 @@ def run_cleaner_batch_async(task_ids: list[str]) -> None:
 
 def _delete_single_file(f: Path, use_recycle_bin: bool):
     try:
-        if use_recycle_bin:
-            return _send_to_recycle_bin(f)
+        size = f.stat().st_size  # 多线程日志0GB输出bug一会别忘修！！！！
+        if use_recycle_bin:      #收到
+            if _send_to_recycle_bin(f):
+                return size
+            return 0
         else:
             f.unlink()
-            return True
+            return size
     except Exception:
-        return False
+        return 0
