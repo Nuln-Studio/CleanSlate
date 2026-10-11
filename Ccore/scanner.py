@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Dict
 
-from config import (
+from Ccore.config import (
     PATH_TEMP_SYSTEM, PATH_TEMP_USER, PATH_PREFETCH,
     PATH_UPDATE_CACHE, PATH_QQ, PATH_WECHAT_CANDIDATES,
     PATH_HIBERNATION, PATH_CHROME_CACHE, PATH_EDGE_CACHE,
@@ -509,7 +509,7 @@ def get_all_scans() -> Dict[str, Dict]:
             print(f" 完成 ({data.get('size_gb',0):.2f} GB)")
     return results
 
-from config import CUSTOM_CACHE_DIRS, ENABLE_RECYCLE_BIN
+from Ccore.config import CUSTOM_CACHE_DIRS, ENABLE_RECYCLE_BIN
 
 def scan_recycle_bin() -> Dict:
     try:

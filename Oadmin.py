@@ -38,7 +38,7 @@ if __name__ == "__main__":
         input()
         sys.exit(1)
     try:
-        from main import main
+        from Ccore.main import main
         main()
     except ImportError as e:
         print(f"启动主程序失败: {e}")

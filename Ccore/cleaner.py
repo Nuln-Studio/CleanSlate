@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from datetime import datetime
 
-from config import (
+from Ccore.config import (
     PATH_TEMP_SYSTEM, PATH_TEMP_USER, PATH_PREFETCH,
     PATH_UPDATE_CACHE, PATH_QQ, PATH_HIBERNATION,
     PATH_CHROME_CACHE, PATH_EDGE_CACHE, PATH_FIREFOX_CACHE,
